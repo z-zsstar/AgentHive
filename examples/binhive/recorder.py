@@ -206,7 +206,7 @@ class RecorderAgent(BaseAgent):
         
         final_system_prompt = system_prompt
         
-        self.messages_filters = [{'from': context.get('base_path'), 'to': '/'}, {'from': 'zxr', 'to': 'root'}]
+        self.messages_filters = [{'from': context.get('base_path'), 'to': '/'}]
         
         super().__init__(
             tools=tools_to_pass, 

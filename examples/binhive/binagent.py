@@ -121,7 +121,7 @@ class PlannerAgent(BaseAgent):
     ):
         self.file_path = context.get("file_path") if context else None
         tools_to_pass = tools if tools is not None else [Radare2Tool]
-        self.messages_filters = messages_filters if messages_filters else [{'from': context.get('base_path') + os.path.sep, 'to': ''}, {'from': 'zxr', 'to': 'root'}] if context and context.get('base_path') else []
+        self.messages_filters = messages_filters if messages_filters else [{'from': context.get('base_path') + os.path.sep, 'to': ''}] if context and context.get('base_path') else []
         
         super().__init__(
             tools=tools_to_pass, 
