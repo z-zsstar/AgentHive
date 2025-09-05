@@ -4,7 +4,7 @@ from typing import Optional, List, Type, Union
 
 from ..base import BaseAgent
 from ..tools.basetool import FlexibleContext, ExecutableTool
-from .assitants import BaseAssistant, ParallelBaseAssistant
+from .assistants import BaseAssistant, ParallelBaseAssistant
 
 
 @dataclass

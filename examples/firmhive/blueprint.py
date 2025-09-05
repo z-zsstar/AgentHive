@@ -9,7 +9,7 @@ import uuid
 from typing import Dict, List, Any, Optional, Type, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agenthive.base import BaseAgent
-from agenthive.core.assitants import BaseAssistant, ParallelBaseAssistant
+from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
 from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
 
 from binhive.binagent import create_binary_analysis_config,\

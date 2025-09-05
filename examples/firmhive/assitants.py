@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, List, Union, Type
 
 from agenthive.base import BaseAgent
 from agenthive.tools.basetool import FlexibleContext, ExecutableTool
-from agenthive.core.assitants import BaseAssistant, ParallelBaseAssistant
+from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
 
 class DeepFileAnalysisAssistant(BaseAssistant):
     name = "DeepFileAnalysisAssistant"

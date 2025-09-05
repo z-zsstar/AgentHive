@@ -7,7 +7,7 @@ from typing import Optional, List, Type, Union, Any, Dict
 from agenthive.base import BaseAgent
 from agenthive.core.builder import AgentConfig, build_agent
 from agenthive.tools.basetool import FlexibleContext, ExecutableTool
-from agenthive.core.assitants import BaseAssistant, ParallelBaseAssistant
+from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
 from deepresearch.models import ReportNode
 
 class FocusedChapterEditor(BaseAssistant):
