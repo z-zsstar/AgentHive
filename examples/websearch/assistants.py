@@ -1,25 +1,27 @@
 import os
 import traceback
 from typing import List, Dict, Any
-
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
-from agenthive.core.builder import build_agent, AgentConfig
 from agenthive.base import Message
+from agenthive.core.builder import build_agent, AgentConfig
+from agenthive.tools.basetool import ExecutableTool, FlexibleContext
 
 
 class WebParallelAssistant(ExecutableTool):
     """An assistant that can process multiple web-based tasks in parallel.
     Each task is handled by a separate WebSearchAgent instance in its own browser context.
     """
-    name: str = "ParallelTaskProcessor"
-    description: str = "Use this tool to process a list of web-based tasks in parallel. This is useful when you need to gather information from multiple sources or perform multiple related tasks simultaneously."
+    name: str = "ParallelWebExtractor"
+    description: str = """
+    一个可以并行处理多个网络任务的助手。它特别适用于从指定网页中提取相关信息，或从给定的PDF链接中提取内容。
+    每个任务由一个独立的WebSearchAgent实例在自己的浏览器上下文中处理。
+    """
     parameters: Dict[str, Any] = {
         "type": "object",
         "properties": {
             "tasks": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "A list of descriptive tasks to execute in parallel."
+                "description": "一个描述性任务列表，用于并行执行。每个任务字符串必须明确包含要访问的URL（网页或PDF链接），并指明需要提取的具体信息。"
             }
         },
         "required": ["tasks"]
