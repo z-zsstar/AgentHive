@@ -1,16 +1,19 @@
-import traceback
-import threading
-import json
 import re
-from typing import Optional, List, Type, Union, Any, Dict
+import json
+import traceback
+from typing import Optional, List, Any, Dict
 
-from agenthive.base import BaseAgent
+from agenthive.tools.basetool import FlexibleContext
+from deepresearch.models import ReportNode,ReferenceManager
 from agenthive.core.builder import AgentConfig, build_agent
-from agenthive.tools.basetool import FlexibleContext, ExecutableTool
 from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
-from deepresearch.models import ReportNode
 
 class FocusedChapterEditor(BaseAssistant):
+    """
+    一个专注于单个章节的助手。它会自动创建不存在的章节，
+    然后将一个具体的、深入的写作或编辑任务委托给子代理。
+    这是处理单个报告部分的标准工具。
+    """
     name = "FocusedChapterEditor"
     description = (
         "专注于单个章节进行详细编辑。**如果章节不存在，将自动创建。** "
@@ -33,10 +36,21 @@ class FocusedChapterEditor(BaseAssistant):
     }
 
     def _prepare_sub_agent_context(self, **task_details: Any) -> FlexibleContext:
-        sub_agent_context = self.context.copy()
+        sub_agent_context = FlexibleContext()
+
+        report_tree: Optional[ReportNode] = self.context.get("report_tree")
+        ref_manager: Optional[ReferenceManager] = self.context.get("reference_manager")
+        user_input: str = self.context.get("user_input", "")
+        output_dir: str = self.context.get("output", "research/output")
+
+        sub_agent_context.set("report_tree", report_tree)
+        sub_agent_context.set("reference_manager", ref_manager)
+        sub_agent_context.set("user_input", user_input)
+        sub_agent_context.set("output", output_dir)
+
         chapter_path = task_details.get("chapter_path")
-        report_tree: Optional[ReportNode] = sub_agent_context.get("report_tree")
-        self_path = sub_agent_context.get("workspace_node_path", "")
+        self_path = self.context.get("workspace_node_path", "")
+
         if not chapter_path:
              raise ValueError("错误：'chapter_path' 不能为空。")
         if not re.match(r'^\d+(-\d+)*$', chapter_path):
@@ -47,20 +61,27 @@ class FocusedChapterEditor(BaseAssistant):
              raise ValueError(f"错误：权限被拒绝。你的工作区是 '{self_path}'，只能委托给其直接的子章节。")
         if not isinstance(report_tree, ReportNode):
             raise ValueError("错误：上下文中未找到 'report_tree'。")
+
         target_node = report_tree.get_node_by_path(chapter_path)
         if target_node is None:
             print(f"信息：章节 '{chapter_path}' 不存在，正在尝试创建...")
             path_parts = chapter_path.split('-')
             parent_path = "-".join(path_parts[:-1]) if len(path_parts) > 1 else ""
             parent_node = report_tree.get_node_by_path(parent_path)
+
             if not parent_node:
                 raise ValueError(f"错误：无法创建章节 '{chapter_path}'，因为其父章节 '{parent_path}' 也不存在。")
+            
             new_chapter_node = ReportNode(parent=parent_node)
             parent_node.add_item(new_chapter_node)
+            
             if new_chapter_node.path != chapter_path:
                  print(f"警告：创建的节点路径 '{new_chapter_node.path}' 与目标路径 '{chapter_path}' 不符。这可能在非顺序创建时发生，通常是正常的。")
+            
             print(f"信息：已成功创建新章节，其路径为：'{new_chapter_node.path}'。")
+
         sub_agent_context.set("workspace_node_path", chapter_path)
+        
         return sub_agent_context
 
     def _build_sub_agent_prompt(self, **task_details: Any) -> str:

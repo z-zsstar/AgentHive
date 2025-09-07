@@ -1,21 +1,22 @@
 import copy
 import json
 import re
-from typing import Optional, List, Union
+from typing import Optional, Union
 import traceback
 
 from agenthive.tools.basetool import ExecutableTool
 from deepresearch.models import ReportNode, ContentBlock, ReferenceManager
 
+
 class AddItemTool(ExecutableTool):
     """
     用于向报告添加新内容或结构的主要工具。
-    它可以创建并插入章节节点和内容块（如段落、列表）。
+    它可以创建并插入章节节点和内容块（如段落、列表、图片）。
     插入位置可以通过ID被精确控制。
     """
     name = "add_item"
     description = (
-        "向报告添加一个新项目（章节容器或内容块）。"
+        "向报告添加一个新项目（章节容器或内容块，包括图片）。"
         "使用 'item_type' 指定创建的类型。"
         "使用 'insert_after_id' 或 'insert_before_id' 来精确放置新项目。"
     )
@@ -29,12 +30,16 @@ class AddItemTool(ExecutableTool):
             },
             "item_type": {
                 "type": "string",
-                "enum": ["chapter", "paragraph", "list", "code", "table", "heading"],
-                "description": "要创建的项目的类型。使用 'chapter' 创建新的空子章节容器。注意子章节需要`heading`，但是如果编写段落需要`text`。"
+                "enum": ["chapter", "paragraph", "list", "code", "table", "heading", "image"],
+                "description": "要创建的项目类型。使用 'chapter' 创建子章节, 'paragraph' 创建段落, 'image' 创建图片。"
             },
             "text": {
                 "type": "string",
-                "description": "项目的文本内容，对于内容块是必需的。使用Markdown格式。如果 'item_type' 是 'chapter' 则忽略。"
+                "description": "项目的文本内容。对于内容块是必需的（例如段落内容，列表项）。当 item_type 为 'image' 时，此内容将用作图片的描述（alt text）。如果 'item_type' 是 'chapter' 则忽略。"
+            },
+            "image_url": {
+                "type": "string",
+                "description": "(可选，但当 item_type 为 'image' 时必需) 图片的 URL 或路径。"
             },
             "insert_after_id": {
                 "type": "string",
@@ -46,7 +51,7 @@ class AddItemTool(ExecutableTool):
             },
             "source": {
                 "type": "string",
-                "description": "(可选) 内容的引用来源URL或标识符。"
+                "description": "(可选) 需要引用时，必须在工具中使用 source 参数提供来源。系统会自动生成文末的参考文献列表。禁止手动添加“参考文献”章节和内容。"
             }
         },
     }
@@ -55,6 +60,7 @@ class AddItemTool(ExecutableTool):
     def parameters(self) -> dict:
         workspace_path = self.context.get("workspace_node_path", "")
         path_str = f"'{workspace_path}'" if workspace_path else "根目录 ('')"
+        
         params = copy.deepcopy(self._parameters_template)
         params["properties"]["parent_path"]["description"] = (
             f"你的当前工作区是 {path_str}。'parent_path' 必须是此路径或其子路径。默认值是当前工作区路径。" +
@@ -67,13 +73,11 @@ class AddItemTool(ExecutableTool):
         parent_path: str,
         item_type: str,
         text: Optional[str] = None,
+        image_url: Optional[str] = None,
         insert_after_id: Optional[str] = None,
         insert_before_id: Optional[str] = None,
         source: Optional[str] = None
     ) -> str:
-        """
-        向报告树中插入新项目（章节或内容块）。
-        """
         try:
             report_tree: Optional[ReportNode] = self.context.get("report_tree")
             ref_manager: Optional[ReferenceManager] = self.context.get("reference_manager")
@@ -93,15 +97,23 @@ class AddItemTool(ExecutableTool):
             if item_type == "chapter":
                 new_item = ReportNode()
             else:
-                if text is None:
-                    return f"错误：'text' 参数对于 item_type '{item_type}' 是必需的。"
-                block_text = text
+                block_text = ""
+                if item_type == "image":
+                    if not image_url:
+                        return "错误：当 item_type 为 'image' 时, 'image_url' 参数是必需的。"
+                    alt_text = text or ""
+                    block_text = f"![{alt_text}]({image_url})"
+                else:
+                    if text is None:
+                        return f"错误：'text' 参数对于 item_type '{item_type}' 是必需的。"
+                    block_text = text
+
                 block_meta = {}
-                ref_id = None
                 if source and source.strip():
                     ref_id = ref_manager.add_reference(source)
                     block_text += f" [{ref_id}]"
                     block_meta['reference_ids'] = [ref_id]
+                
                 new_item = ContentBlock(block_type=item_type, text=block_text, meta=block_meta)
             
             success = parent_node.add_item(
