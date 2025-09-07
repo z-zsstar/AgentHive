@@ -3,8 +3,8 @@ import base64
 import traceback
 from typing import List, Dict, Any, Optional, Union
 
-from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 
 from agenthive.base import BaseAgent, Message
 from agenthive.tools.basetool import FlexibleContext, ExecutableTool
@@ -12,15 +12,7 @@ from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
 
 from .scripts import MARK_PAGE_SCRIPT_CONTENT
 from websearch.assistants import WebParallelAssistant
-from websearch.interact import (
-    SearchOnlineTool,
-    NavigateTool, 
-    ClickTool, 
-    TypeTextTool, 
-    ScrollTool, 
-    GoBackTool, 
-    ReadPDFContentFromURLTool
-)
+from websearch.tools import SearchOnlineTool,NavigateTool, ClickTool, TypeTextTool, ScrollTool, GoBackTool, ReadPDFContentFromURLTool, TavilySearchTool
 
 class WebSearchAgent(BaseAgent):
     """
@@ -45,21 +37,36 @@ class WebSearchAgent(BaseAgent):
             tools_list = tools
             if tools_list is None:
                 tools_list = [
-                    SearchOnlineTool(context=context),
-                    # TavilySearchTool(context=context),
+                    # SearchOnlineTool(context=context),
+                    TavilySearchTool(context=context),
                     NavigateTool(context=context),
                     ClickTool(context=context), TypeTextTool(context=context),
                     ScrollTool(context=context), GoBackTool(context=context),
                     ReadPDFContentFromURLTool(context=context)
                 ]
-            system_prompt = system_prompt if system_prompt else """你是一个专业的网页浏览代理。你的任务是根据用户的请求，在网页上进行浏览、搜索、点击和阅读，以全面地获取所有相关信息。在完成任务时，你必须：
+            system_prompt = system_prompt if system_prompt else """
+你是一个专业的网络搜索代理。你的核心任务是**全面、详尽地搜集所有与用户请求相关的信息和文献**，不遗漏任何潜在有用的数据。在搜集和分析信息时，你必须做到以下几点：
 
-1.  **全面性**: 确保你收集了所有与用户请求相关的信息，不要遗漏关键细节。
-2.  **准确性**: 仔细阅读和理解网页内容，提取准确的信息。
-3.  **溯源性**: 记录并返回你获取信息的具体来源URL。
-4.  **总结性**: 将收集到的所有信息整合成一个完整、连贯的答案。
+**核心原则：**
+1.  **信息全面性**：务必深入挖掘，从多个来源获取信息，确保覆盖所有相关方面。**搜索范围不限于中文和英文，应尽可能获取多种语言的相关信息。**
+2.  **来源追溯性与可靠性**：在你的最终响应中，**必须清晰地标注所有信息的来源（URL或文献名称）**。同时，**你需要独立判断信息的权威性和可信度，优先获取并整合来自高可信度来源的信息。**
+3.  **智能委托**：
+    *   当你识别出PDF文档的URL时，应**优先委托助手（如果有）**来提取其内容。
+    *   当需要访问特定网页以获取详细信息或与网页进行交互时，应**优先委托助手**。
 
-你的最终目标是为用户提供一个包含完整信息和来源的综合性答复。"""
+**工作流程：**
+1.  **理解任务**：仔细分析用户的搜索需求，明确信息搜集的目标和范围。
+2.  **策略规划**：制定一个高效的搜索策略，包括关键词选择、**考虑多语言搜索**、网站访问顺序以及如何利用工具进行深度信息提取。
+3.  **执行搜索**：
+    *   进行广泛的关键词搜索。
+    *   根据搜索结果访问相关网页。
+    *   在网页上，发现更多关联链接或文档。
+    *   如果发现PDF链接，使用助手提取其内容。
+4.  **信息整合与分析**：对搜集到的信息进行整理、去重和分析，**并根据其权威性和可信度进行评估和优先级排序**，提炼出与用户请求最相关的部分。
+5.  **生成最终响应**：以清晰、简洁的方式呈现你的发现，**并尽可能完整地返回所有相关内容，确保每条关键信息都附带了明确的来源尤其是url**。如果你无法找到足够的信息，也要明确说明。
+
+在完成所有相关信息的搜集和整理后，使用`finish`操作并提供带有来源的最终回答。
+"""
             super().__init__(
                 context=context, max_iterations=max_iterations, tools=tools_list,
                 system_prompt=system_prompt, output_schema=output_schema, **extra_kwargs
