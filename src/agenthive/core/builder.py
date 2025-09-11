@@ -4,7 +4,6 @@ from typing import Optional, List, Type, Union
 
 from ..base import BaseAgent
 from ..tools.basetool import FlexibleContext, ExecutableTool
-from .assistants import BaseAssistant, ParallelBaseAssistant
 
 
 @dataclass
@@ -20,12 +19,16 @@ class AgentConfig:
 class AssistantToolConfig:
     assistant_class: Type[ExecutableTool]
     sub_agent_config: AgentConfig
-    name: Optional[str] = None
+    name: Optional[str] = None  
     description: Optional[str] = None
     timeout: Optional[int] = None
 
 
 def build_assistant(assistant_config: AssistantToolConfig, context: FlexibleContext) -> ExecutableTool:
+    """
+    Build an assistant tool from an assistant config.
+    """
+    from .assistants import BaseAssistant, ParallelBaseAssistant
     sub_agent_tool_configs = assistant_config.sub_agent_config.tool_configs if assistant_config.sub_agent_config else []
 
     if issubclass(assistant_config.assistant_class, (BaseAssistant, ParallelBaseAssistant)):

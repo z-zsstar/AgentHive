@@ -975,11 +975,17 @@ Retry generating the response.
                         parsed_response = self._parse_llm_response(raw_response)
                         
                         if parsed_response != current_parsed_content:
-                            yield parsed_response
+                            conversation.append({
+                                "role": "assistant_partial",
+                                "content": parsed_response
+                            })
                             current_parsed_content = parsed_response
                     
                     if parsed_response != current_parsed_content:
-                        yield parsed_response
+                        conversation.append({
+                            "role": "assistant_partial",
+                            "content": parsed_response
+                        })
                     
                     break
 
@@ -1005,13 +1011,13 @@ Retry generating the response.
                 elif "final_answer" in parsed_response:
                     final_answer = parsed_response["final_answer"]
                     print(f"Final answer:\n{final_answer}")
-                    yield final_answer # Yield the final answer in stream mode
-                    return # End the stream after final answer
+                    conversation.append({"role": "assistant", "content": final_answer})
+                    return conversation # End the stream after final answer
                 else:
                     print(f"Parsed response (first 200 chars): {str(parsed_response)[:200]}")
             else:
                 print("No parsed response from LLM.")
-                yield {"error": "No response or unparseable response from LLM"}
+                conversation.append({"role": "error", "content": "No response or unparseable response from LLM"})
         
-        yield {"error": "Max iterations reached without a final answer."} # Indicate end of stream with an error if no final answer
+        conversation.append({"role": "error", "content": "Max iterations reached without a final answer."}) # Indicate end with an error if no final answer
         return conversation
