@@ -3,6 +3,8 @@ import re
 import json
 import queue
 import inspect
+import asyncio
+import functools
 import threading
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Callable, Optional, Type, Union
@@ -73,7 +75,11 @@ class BaseLLM(ABC):
     
     def get_llm_response(self, messages: Optional[List[Message]] = None, **kwargs) -> Dict[str, Any]:
         msg_list = messages if messages is not None else self.messages
-        return self.llm_client(msg_list, **kwargs)
+        return self.llm_client.invoke(msg_list, **kwargs)
+
+    async def get_llm_response_async(self, messages: Optional[List[Message]] = None, **kwargs) -> Dict[str, Any]:
+        msg_list = messages if messages is not None else self.messages
+        return await self.llm_client.ainvoke(msg_list, **kwargs)
 
 
 class JSONOutputLLM(BaseLLM):
@@ -155,7 +161,22 @@ The response must be a valid JSON object that conforms to the following schema:
         except Exception as e:
             print(f"Unknown error during response parsing: {e}. Response text (first 200 chars): '{response_text[:200]}'")
             raise
-    
+
+    def run(self, user_input: str = None) -> Any:
+        if user_input:
+            self.add_message("user", user_input)
+        messages = self.get_messages()
+        llm_response = self.get_llm_response(messages, stream=False)
+        return self._parse_llm_response(llm_response.get("content"))
+
+    async def arun(self, user_input: str = None) -> Any:
+        if user_input:
+            self.add_message("user", user_input)
+        messages = self.get_messages()
+        llm_response = await self.get_llm_response_async(messages, stream=False)
+        return self._parse_llm_response(llm_response.get("content"))
+
+
 class BaseAgent(JSONOutputLLM):
     def __init__(
         self,
@@ -243,7 +264,7 @@ class BaseAgent(JSONOutputLLM):
         try:
             os.makedirs(current_agent_log_dir, exist_ok=True)
             self.messages_log_path = os.path.join(current_agent_log_dir, 'message.jsonl')
-            print(f"BaseAgent '{log_identifier}' initialized. Messages will be saved to: {self.messages_log_path}")
+            # print(f"BaseAgent '{log_identifier}' initialized. Messages will be saved to: {self.messages_log_path}")
         except OSError as e:
             print(f"[BaseAgent Setup] Warning: Could not create/access agent log directory '{current_agent_log_dir}'. Error: {e}. Message logging will be disabled.")
             self.messages_log_path = None
@@ -311,7 +332,7 @@ class BaseAgent(JSONOutputLLM):
             except Exception as e:
                 print(f"Error: Processing tool '{tool_name}' failed: {e}")
 
-        print(f"{self.__class__.__name__} tools: {[t.name for t in final_tools_list]}")
+        # print(f"{self.__class__.__name__} tools: {[t.name for t in final_tools_list]}")
         return final_tools_list
 
     def _get_response_format_prompt(self) -> str:
@@ -354,7 +375,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
 
     def _prepare_llm_request_messages(self) -> List[Message]:
         if not self.messages or self.messages[0].role != 'system':
-            print("Error: Message history is empty or the first message is not a system message!")
+            # print("Error: Message history is empty or the first message is not a system message!")
             return self.messages[:]
 
         system_message = self.messages[0]
@@ -379,7 +400,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             return error_msg
 
         tool = self.tools[tool_name]
-        print(f"Executing tool: {tool_name} with input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+        # print(f"Executing tool: {tool_name} with input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
         result_queue = queue.Queue()
 
         def execute_in_thread():
@@ -388,7 +409,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                 result = tool.function(**safe_input_for_exec)
                 result_queue.put(("success", result))
             except Exception as e:
-                print(f"Exception in tool '{tool_name}' execution thread: {e}")
+                # print(f"Exception in tool '{tool_name}' execution thread: {e}")
                 result_queue.put(("error", e))
 
         thread = threading.Thread(target=execute_in_thread, daemon=True, name=f"ToolThread-{tool_name}")
@@ -417,48 +438,117 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                     formatted_result = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n {result_str}"
                     return formatted_result
                 except Exception as e:
-                     print(f"Warning: Tool '{tool_name}' result cannot be safely converted to string or formatted: {e}")
+                     # print(f"Warning: Tool '{tool_name}' result cannot be safely converted to string or formatted: {e}")
                      raw_output = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <Undisplayable complex object, conversion/formatting error: {str(e)}>"
                      return raw_output
             else:
                 error_obj = result 
-                print(f"Tool '{tool_name}' execution failed. Input: {tool_input_str_for_log}. Error: {type(error_obj).__name__}: {str(error_obj)}")
+                # print(f"Tool '{tool_name}' execution failed. Input: {tool_input_str_for_log}. Error: {type(error_obj).__name__}: {str(error_obj)}")
                 error_raw_output = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <Execution failed, error: {type(error_obj).__name__}: {str(error_obj)}>"
                 return error_raw_output
         except queue.Empty:
-            print(f"Tool '{tool_name}' execution timed out (exceeded {timeout_seconds} seconds). Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+            # print(f"Tool '{tool_name}' execution timed out (exceeded {timeout_seconds} seconds). Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
             timeout_raw_output = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Execution timed out, exceeded {timeout_seconds} seconds>"
             return timeout_raw_output
         except Exception as e:
-             print(f"Unexpected queue or processing error during tool '{tool_name}' execution: {e}. Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+             # print(f"Unexpected queue or processing error during tool '{tool_name}' execution: {e}. Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
              error_queue_raw_output = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Unexpected error during execution: {str(e)}>"
              return error_queue_raw_output
 
-    def auto_execute_tools(self, auto_tools: Optional[List[Dict[str, Any]]] = None) -> None:
-        if auto_tools is None:
+    async def _execute_tool_async(self, tool_name: str, tool_input: dict) -> str:
+        """
+        Asynchronously executes a tool in a separate thread to avoid blocking the event loop.
+        """
+        if tool_name not in self.tools:
+            error_msg = f"Error: Tool '{tool_name}' does not exist. Available tools: {list(self.tools.keys())}"
+            print(error_msg)
+            return error_msg
+
+        tool = self.tools[tool_name]
+        loop = asyncio.get_running_loop()
+        
+        default_timeout = 300
+        timeout_seconds = tool.timeout if hasattr(tool, 'timeout') and tool.timeout is not None else default_timeout
+
+        try:
+            # Ensure tool_input keys are strings for safe execution
+            safe_input_for_exec = {str(k): v for k, v in tool_input.items()}
+            
+            # Use run_in_executor to run the synchronous tool function in a thread pool
+            future = loop.run_in_executor(
+                None,  # Use the default executor
+                functools.partial(tool.function, **safe_input_for_exec)
+            )
+            
+            # Wait for the result with a timeout
+            result = await asyncio.wait_for(future, timeout=timeout_seconds)
+
+            tool_input_str_for_log = json.dumps(tool_input, ensure_ascii=False, default=str)
+            
+            if result is None:
+                return f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <No return value>"
+            
+            result_str = str(result)
+            
+            if not result_str.strip() and result_str != "":
+                return f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <Empty string>"
+            
+            return f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n {result_str}"
+
+        except asyncio.TimeoutError:
+            error_msg = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Execution failed, error: TimeoutError: Tool execution exceeded {timeout_seconds} seconds.>"
+            print(f"Tool '{tool_name}' execution timed out.")
+            return error_msg
+        except Exception as e:
+            error_msg = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Execution failed, error: {type(e).__name__}: {str(e)}>"
+            # print(f"Exception in async tool '{tool_name}' execution: {e}")
+            return error_msg
+
+    def _auto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
+        """Helper method to execute a list of tools sequentially."""
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("name") or tool_call.get("tool_name")
+            tool_input = tool_call.get("input") or tool_call.get("tool_input", {})
+            if not tool_name:
+                print("Warning: tool_name not provided in tool_call, skipping.")
+                continue
+            
+            tool_result = self._execute_tool(tool_name, tool_input)
+            # print(f"Tool execution result:\n{tool_result}")
+            self.add_message('user', tool_result, type='tool_result')
+
+    async def _aauto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
+        """Helper method to execute a list of tools concurrently."""
+        tasks = []
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("name") or tool_call.get("tool_name")
+            tool_input = tool_call.get("input") or tool_call.get("tool_input", {})
+            if not tool_name:
+                print("Warning: tool_name not provided in tool_call, skipping.")
+                continue
+            tasks.append(self._execute_tool_async(tool_name, tool_input))
+        
+        if not tasks:
             return
-        for tool in auto_tools:
-            name = tool.get("name")
-            params = tool.get("params", {})
-            if name in self.tools:
-                print(f"Auto-executing tool: {name} with params: {params}")
-                try:
-                    output = self._execute_tool(name, params)
-                    self.add_message('user', f"[Tool:{name}\nParameters:{json.dumps(params, ensure_ascii=False, default=str)}\nResult]:\n{output}", type='tool_result')
-                except Exception as e:
-                    error = f"Error executing tool {name}: {e}"
-                    print(f"Error auto-executing tool {name}: {e}")
-                    self.add_message('user', f"[Tool:{name}\nParameters:{json.dumps(params, ensure_ascii=False, default=str)}\nError]:\n{error}", type='tool_result')
 
-    def run(self, user_input: str = None, auto_tools: Optional[List[Dict[str, Any]]] = None) -> Any: 
+        tool_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in tool_results:
+            if isinstance(result, Exception):
+                # print(f"An exception occurred during concurrent tool execution: {result}")
+                self.add_message('user', f"Tool execution failed with error: {result}", type='tool_result_error')
+            else:
+                # print(f"Tool execution result:\n{result}")
+                self.add_message('user', result, type='tool_result')
+
+    def run(self, user_input: str = None, auto_tools: Optional[List[Dict[str, Any]]] = None) -> Any:
         if user_input:
-            self.add_message('user', user_input) 
-            print(f"User input:\n {user_input}")
-
-        print(f"Current context:\n {self.context}")
-
+            self.add_message('user', user_input)
+            # print(f"User input:\n {user_input}")
+            # print(f"Current context:\n {self.context}")
+        
         if auto_tools:
-            self.auto_execute_tools(auto_tools)
+            self._auto_execute_tools(auto_tools)
 
         final_answer = None
         for i in range(self.max_iterations):
@@ -559,7 +649,115 @@ Retry generating the response.
 
         print(f"{self.__class__.__name__} finished")
         return final_answer if final_answer is not None else "Sorry, I was unable to complete the request."
-    
+
+    async def arun(self, user_input: str = None, auto_tools: Optional[List[Dict[str, Any]]] = None) -> Any:
+        if user_input:
+            self.add_message('user', user_input)
+            # print(f"User input:\n {user_input}")
+            # print(f"Current context:\n {self.context}")
+
+        if auto_tools:
+            await self._aauto_execute_tools(auto_tools)
+
+        final_answer = None
+        for i in range(self.max_iterations):
+            print(f"\n----- [Async Iteration {i + 1}/{self.max_iterations}] -----")
+
+            prompt_messages = self._prepare_llm_request_messages()
+
+            max_parse_retries = 3
+            parsed_response = None
+            raw_response = ""
+            
+            for retry_count in range(max_parse_retries):
+                try:
+                    output_dir = self.context.get("output")
+                    response_obj = await self.get_llm_response_async(prompt_messages, output_dir=output_dir)
+                    raw_response = response_obj['content']
+                    print(f"LLM Raw Response (Async Iteration {i+1}, Attempt {retry_count+1}):\n{raw_response}")
+                    
+                    if retry_count == 0:  
+                        self.add_message('assistant', raw_response)    
+                    parsed_response = self._parse_llm_response(raw_response)
+                    print(f"Parsed LLM Response: {json.dumps(parsed_response, indent=2, ensure_ascii=False, default=str)}")
+                    
+                    if "error" in parsed_response:
+                        raise ValueError(f"Parsing error: {parsed_response['error']}: {parsed_response.get('message', 'Unknown error')}")
+                    
+                    break
+                    
+                except Exception as e:
+                    print(f"Response parsing failed (Async Attempt {retry_count+1}/{max_parse_retries}): {e}")
+                    if retry_count < max_parse_retries - 1:  
+                        format_reminder_prompt = self._get_response_format_prompt()
+                        error_feedback_to_llm = f"""
+Your previous response could not be parsed or validated correctly due to: {str(e)}
+The raw response started with: {raw_response[:200]}...
+
+Please strictly follow the required JSON schema and formatting instructions.
+Ensure all required fields are present and the JSON is well-formed.
+
+Required schema:
+{format_reminder_prompt}
+
+Retry generating the response.
+"""
+                        self.add_message('user', error_feedback_to_llm, type='parse_error')
+                        prompt_messages = self._prepare_llm_request_messages()  
+                    else:
+                        print(f"Maximum retry attempts reached, failed to parse LLM response")
+                        parsed_response = {
+                            "error": "parse_error_max_retries",
+                            "thought": f"After {max_parse_retries} attempts, still unable to generate a valid formatted response",
+                            "action": "finish",
+                            "action_input": {"final_response": f"Sorry, I encountered a technical issue and couldn't process your request correctly."},
+                            "status": "complete"
+                        }
+            
+            if parsed_response is None or "error" in parsed_response:
+                print("Failed to parse LLM response, using default error response")
+                parsed_response = {
+                    "thought": "Failed to parse response",
+                    "action": "finish",
+                    "action_input": {"final_response": "Sorry, I encountered a technical issue and couldn't process your request correctly."},
+                    "status": "complete"
+                }
+
+            action = parsed_response.get("action")
+            action_input = parsed_response.get("action_input")
+            status = parsed_response.get("status")  
+
+            if status == "complete" or (action == "finish" and status != "continue"):
+                if isinstance(action_input, dict) and "final_response" in action_input:
+                    final_answer = action_input["final_response"]
+                else:
+                    final_answer = parsed_response
+                break 
+
+            elif action and action != "finish" and status == "continue": 
+                if not isinstance(action_input, dict):
+                     tool_result = f"Error: 'action_input' for tool '{action}' is invalid or missing (requires a dictionary), received {type(action_input)}."
+                     print(tool_result)
+                     self.add_message('user', tool_result, type='tool_result_error')
+                else:
+                    tool_result = await self._execute_tool_async(action, action_input)
+                    print(f"Tool execution result:\n{tool_result}")
+                    self.add_message('user', tool_result, type='tool_result')
+
+            else: 
+                 print("Warning: LLM response format inconsistency or status mismatch with action")
+                 status_mismatch = f"Error: Your response is inconsistent. If action is '{action}', status should be 'complete' if action is 'finish' else 'continue', but received '{status}'."
+                 self.add_message('user', status_mismatch, type='error')
+                 continue 
+
+        else: 
+            print(f"Max iterations reached ({self.max_iterations})")
+            final_answer = "Max iterations reached but no answer found."
+            if self.messages and self.messages[-1].role == 'assistant':
+                final_answer = self.messages[-1].content
+
+        print(f"{self.__class__.__name__} finished")
+        return final_answer if final_answer is not None else "Sorry, I was unable to complete the request."
 
     def stream(self, user_input: str = None) -> List[Dict[str, Any]]:
         print(f"System prompt:\n {self.messages[0].content}")
@@ -739,4 +937,81 @@ Retry generating the response.
             })
 
         print(f"===== Agent run finished (Stream Mode) =====")
+        return conversation
+
+    async def astream(self, user_input: str = None) -> List[Dict[str, Any]]:
+        print(f"System prompt:\n {self.messages[0].content}")
+        conversation: List[Dict[str, Any]] = []
+        
+        if self.messages and self.messages[0].role == "system":
+            conversation.append({
+                "role": "system",
+                "content": self.messages[0].content
+            })
+
+        if user_input:
+            self.add_message('user', user_input)
+            print(f"Stream input:\n {user_input}")
+            conversation.append({
+                "role": "user",
+                "content": user_input
+            })
+        
+        for i in range(self.max_iterations):
+            print(f"\n----- [Iteration {i + 1}/{self.max_iterations}] (Async Stream Mode) -----")
+            
+            prompt_messages = self._prepare_llm_request_messages()
+            
+            max_parse_retries = 3
+            parsed_response = None
+            raw_response = ""
+
+            for retry_count in range(max_parse_retries):
+                try:
+                    raw_response_generator = self.llm_client.invoke_async(prompt_messages, stream=True)
+                    current_parsed_content = {}
+                    async for chunk in raw_response_generator:
+                        raw_response += chunk
+                        parsed_response = self._parse_llm_response(raw_response)
+                        
+                        if parsed_response != current_parsed_content:
+                            yield parsed_response
+                            current_parsed_content = parsed_response
+                    
+                    if parsed_response != current_parsed_content:
+                        yield parsed_response
+                    
+                    break
+
+                except ValueError as e:
+                    print(f"Parsing error (attempt {retry_count + 1}/{max_parse_retries}): {e}")
+                    if retry_count == max_parse_retries - 1:
+                        print(f"Failed to parse LLM response after {max_parse_retries} attempts.")
+                        raise
+
+                except Exception as e:
+                    print(f"Error during LLM invocation or stream processing: {e}")
+                    raise
+
+            if parsed_response:
+                conversation.append({"role": "assistant", "content": parsed_response})
+
+                if "tool_code" in parsed_response:
+                    tool_code = parsed_response["tool_code"]
+                    print(f"Tool code to execute:\n{tool_code}")
+                    tool_output = await self._execute_tool_async(tool_code) # Assuming an async tool execution
+                    self.add_message("tool", tool_output, tool_call_id=tool_code)
+                    conversation.append({"role": "tool", "content": tool_output})
+                elif "final_answer" in parsed_response:
+                    final_answer = parsed_response["final_answer"]
+                    print(f"Final answer:\n{final_answer}")
+                    yield final_answer # Yield the final answer in stream mode
+                    return # End the stream after final answer
+                else:
+                    print(f"Parsed response (first 200 chars): {str(parsed_response)[:200]}")
+            else:
+                print("No parsed response from LLM.")
+                yield {"error": "No response or unparseable response from LLM"}
+        
+        yield {"error": "Max iterations reached without a final answer."} # Indicate end of stream with an error if no final answer
         return conversation

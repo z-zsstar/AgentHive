@@ -3,10 +3,11 @@ from typing import Dict, List, Any, Optional, Type, Union
 
 from agenthive.base import BaseAgent
 from agenthive.core.builder import AgentConfig, AssistantToolConfig
+from agenthive.tools.basetool import FlexibleContext, ExecutableTool
 
+from binhive.tools import Radare2Tool
+from binhive.assistants import ParallelFunctionDelegator,ParallelTaskDelegator
 from binhive.recorder import RecorderAgent,StoreFindingsTool,DEFAULT_KB_SYSTEM_PROMPT
-from binhive.tools import FlexibleContext, ExecutableTool, Radare2Tool
-from binhive.assitants import ParallelFunctionDelegator,ParallelTaskDelegator
 
 
 SHARED_RESPONSE_FORMAT_BLOCK = """
@@ -146,6 +147,17 @@ class PlannerAgent(BaseAgent):
             f"请基于以上分析结果，判断是否存储。"
         )
         self.kb_storage_agent.run(user_input=store_prompt)
+        return findings
+    
+    async def arun(self, user_input: str = None) -> Any:
+        findings = str(await super().arun(user_input=user_input))
+        
+        store_prompt = (
+            f"新的分析结果如下：\n"
+            f"{findings}\n\n"
+            f"请基于以上分析结果，判断是否存储。"
+        )
+        await self.kb_storage_agent.arun(user_input=store_prompt)
         return findings
     
 

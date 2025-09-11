@@ -24,12 +24,12 @@ class ParallelTaskDelegator(ParallelBaseAssistant):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "task_description": {
+                        "task": {
                             "type": "string",
                             "description": "要执行的子任务的具体描述，注意每个子任务的描述都是独立的，需要说明分析对象。"
                         }
                     },
-                    "required": ["task_description"],
+                    "required": ["task"],
                     "description": "包含单个任务描述的任务项。"
                 },
                 "description": "需要分发给子代理执行的独立子任务列表。"
@@ -38,6 +38,23 @@ class ParallelTaskDelegator(ParallelBaseAssistant):
         "required": ["tasks"]
     }
     timeout = 9600
+
+    def _build_sub_agent_prompt(self, **kwargs: Any) -> str:
+        """
+        为子代理构建完整的任务提示。
+        """
+        task_description = kwargs.get("task")
+        usr_init_msg = self.context.get("user_input")
+
+        usr_init_msg_content = usr_init_msg if usr_init_msg else "未提供用户初始请求"
+        task_description_content = task_description if task_description else "未提供任务描述"
+
+        prompt_parts = [
+            f"用户核心请求是:\n{usr_init_msg_content}",
+            f"当前具体任务:\n{task_description_content}"
+        ]
+
+        return "\n\n".join(prompt_parts)
 
 
 class ParallelFunctionDelegator(ParallelBaseAssistant):
@@ -100,7 +117,7 @@ class ParallelFunctionDelegator(ParallelBaseAssistant):
         """
         task_description = kwargs.get("task_description")
         task_context = kwargs.get("task_context")
-        usr_init_msg = self.context.get("usr_init_msg")
+        usr_init_msg = self.context.get("user_input")
 
         usr_init_msg_content = usr_init_msg if usr_init_msg else "未提供用户初始请求"
         task_description_content = task_description if task_description else "未提供任务描述"

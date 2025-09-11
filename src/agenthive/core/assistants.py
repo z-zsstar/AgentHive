@@ -1,9 +1,11 @@
 import json
+import asyncio
 import traceback
 import threading
 from typing import Optional, List, Type, Union, Any, Dict
 
 from ..base import BaseAgent
+from ..core.builder import AgentConfig, build_agent
 from ..tools.basetool import FlexibleContext, ExecutableTool
 
 class BaseAssistant(ExecutableTool):
@@ -96,7 +98,6 @@ class BaseAssistant(ExecutableTool):
         )
 
     def execute(self, **kwargs: Any) -> str:
-        from .builder import AgentConfig, build_agent
         task_for_error_log: Optional[str] = "未知任务描述"
 
         try:
@@ -143,6 +144,54 @@ class BaseAssistant(ExecutableTool):
                 print(f"ERROR in {self.name}: {log_error_message}")
                 print(traceback.format_exc())
             return f"执行子任务时发生错误: {error_message_for_return}" # Return the detailed error message
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        task_for_error_log: Optional[str] = "未知任务描述"
+
+        try:
+            # Phase 1: Build prompt (can be overridden)
+            task_prompt = self._build_sub_agent_prompt(**kwargs)
+            
+            # Phase 2: Prepare context (can be overridden)
+            try:
+                sub_agent_prepared_context = self._prepare_sub_agent_context(**kwargs)
+            except Exception as e:
+                return f"错误: {str(e)}"
+            
+            # Phase 4: Create and run sub-agent
+            sub_agent_instance_name = f"{self.name}_sub_agent"
+            
+            sub_agent_config = AgentConfig(
+                agent_class=self.agent_class_to_create,
+                tool_configs=self.default_sub_agent_tool_classes,
+                system_prompt=self.sub_agent_system_prompt,
+                max_iterations=self.default_sub_agent_max_iterations,
+                agent_instance_name=sub_agent_instance_name,
+            )
+            
+            sub_agent = build_agent(
+                agent_config=sub_agent_config,
+                context=sub_agent_prepared_context,
+            )
+            
+            result_from_sub_agent = await sub_agent.arun(task_prompt)
+            return result_from_sub_agent
+
+        except Exception as e:
+            # Generic catch-all for any error during the above phases
+            error_desc_snippet = task_for_error_log[:70]
+            # More descriptive error message for the user/LLM
+            error_message_for_return = f"错误: {self.name} 在执行子任务时失败 (任务描述片段: '{error_desc_snippet}'): {type(e).__name__} - {str(e)}"
+            
+            # Detailed message for logging
+            log_error_message = f"Error in {self.name} during sub-task preparation or delegation (task description snippet: '{error_desc_snippet}...'): {type(e).__name__} - {str(e)}"
+            logger = getattr(self, 'logger', None)
+            if logger:
+                logger.error(log_error_message, exc_info=True)
+            else:
+                print(f"ERROR in {self.name}: {log_error_message}")
+                print(traceback.format_exc())
+            return f"执行子任务时发生错误: {error_message_for_return}"
 
 
 class ParallelBaseAssistant(ExecutableTool):
@@ -229,7 +278,7 @@ class ParallelBaseAssistant(ExecutableTool):
         task = kwargs.get("task")
 
         usr_init_msg_content = self.context.get("user_input") if self.context.get("user_input") else "未提供用户初始请求"
-        task_content = task if task else "未提供任务描述"
+        task_content = task if task else "未提供任务描述" # 确保非空
 
         return (
             f"用户初始请求是:\n{usr_init_msg_content}\n\n"
@@ -237,17 +286,19 @@ class ParallelBaseAssistant(ExecutableTool):
         )
 
     def _execute_single_task_in_thread(self, task_item: Dict[str, Any], task_index: int, results_list: list):
-        from .builder import AgentConfig, build_agent
         task_for_error_log: Optional[str] = f"任务 #{task_index + 1}"
 
         try:
+            # Add task_index to details for other methods that might need it.
             task_details_with_index = task_item.copy()
             task_details_with_index['task_index'] = task_index
             
+            # Phase 1: Build prompt (子类负责从 task_details_with_index 中提取所需参数)
             full_task_prompt = self._build_sub_agent_prompt(
                 **task_details_with_index
             )
             
+            # Phase 3: Prepare context
             try:
                 sub_agent_prepared_context = self._prepare_sub_agent_context(
                     **task_details_with_index
@@ -256,6 +307,7 @@ class ParallelBaseAssistant(ExecutableTool):
                 results_list[task_index] = f"错误: {str(e)}"
                 return
             
+            # Phase 4: Create and run sub-agent
             sub_agent_instance_name = f"{self.name}_task{task_index+1}"
 
             sub_agent_config = AgentConfig(
@@ -311,6 +363,7 @@ class ParallelBaseAssistant(ExecutableTool):
         for i, task_item in enumerate(tasks):
             task_result_or_error = results_list[i]
 
+            # 将原始任务配置直接包含在结果中，不做字段名假设
             task_entry = {
                 "task_item": task_item,
                 "task_index": i + 1
@@ -318,6 +371,93 @@ class ParallelBaseAssistant(ExecutableTool):
 
             if task_result_or_error is None:
                 task_entry["error_details"] = "未能获取任务结果 (线程可能未正确返回值)"
+            elif isinstance(task_result_or_error, str) and task_result_or_error.startswith("错误:"):
+                task_entry["error_message"] = task_result_or_error
+            else:
+                task_entry["result"] = task_result_or_error
+            
+            final_results_for_json.append(task_entry)
+        
+        return json.dumps(final_results_for_json, ensure_ascii=False, indent=2)
+
+    async def _aexecute_single_task(self, task_item: Dict[str, Any], task_index: int):
+        task_for_error_log: Optional[str] = f"任务 #{task_index + 1}"
+
+        try:
+            # Add task_index to details for other methods that might need it.
+            task_details_with_index = task_item.copy()
+            task_details_with_index['task_index'] = task_index
+            
+            # Phase 1: Build prompt (子类负责从 task_details_with_index 中提取所需参数)
+            full_task_prompt = self._build_sub_agent_prompt(
+                **task_details_with_index
+            )
+            
+            # Phase 3: Prepare context
+            try:
+                sub_agent_prepared_context = self._prepare_sub_agent_context(
+                    **task_details_with_index
+                )
+            except Exception as e:
+                return f"错误: {str(e)}"
+            
+            # Phase 4: Create and run sub-agent
+            sub_agent_instance_name = f"{self.name}_task{task_index+1}"
+
+            sub_agent_config = AgentConfig(
+                agent_class=self.agent_class_to_create,
+                tool_configs=self.default_sub_agent_tool_classes,
+                max_iterations=self.default_sub_agent_max_iterations,
+                system_prompt=self.sub_agent_system_prompt,
+                agent_instance_name=sub_agent_instance_name
+            )
+
+            sub_agent = build_agent(
+                agent_config=sub_agent_config,
+                context=sub_agent_prepared_context
+            )
+            
+            result = await sub_agent.arun(full_task_prompt)
+            return result
+
+        except Exception as e:
+            error_desc_snippet = str(task_for_error_log)[:50]
+            error_string_for_result = f"错误: {self.name} 的并行子任务 #{task_index + 1} 执行失败 ({type(e).__name__}): {str(e)}"
+            
+            log_error_message = f"Error in {self.name} during parallel sub-task #{task_index + 1} (desc snippet: '{error_desc_snippet}...'): {type(e).__name__} - {str(e)}"
+            logger = getattr(self, 'logger', None)
+            if logger:
+                logger.error(log_error_message, exc_info=True)
+            else:
+                print(f"ERROR in {self.name} (task #{task_index+1}): {log_error_message}")
+            
+            return error_string_for_result
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        tasks = self._extract_task_list(**kwargs)
+        
+        if not tasks:
+            return json.dumps([], ensure_ascii=False)
+
+        coroutines = []
+        for i, task_item in enumerate(tasks):
+            coro = self._aexecute_single_task(task_item, i)
+            coroutines.append(coro)
+
+        results_list = await asyncio.gather(*coroutines)
+            
+        final_results_for_json = []
+        for i, task_item in enumerate(tasks):
+            task_result_or_error = results_list[i]
+
+            # 将原始任务配置直接包含在结果中，不做字段名假设
+            task_entry = {
+                "task_item": task_item,
+                "task_index": i + 1
+            }
+
+            if task_result_or_error is None:
+                task_entry["error_details"] = "未能获取任务结果 (协程可能未正确返回值)"
             elif isinstance(task_result_or_error, str) and task_result_or_error.startswith("错误:"):
                 task_entry["error_message"] = task_result_or_error
             else:

@@ -2,7 +2,7 @@ import os
 import time
 import openai
 import json
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from typing import List, Dict, Any, Optional
 
 class LLMClient:
@@ -47,13 +47,22 @@ class LLMClient:
         base_url = self.config.get(section, 'base_url', fallback=None)
         org_id = self.config.get(section, 'org_id', fallback=None)
         temperature = float(self.config.get(section, 'temperature', fallback='0'))
+        
         client = OpenAI(
             api_key=api_key,
             base_url=base_url if base_url else None,
             organization=org_id if org_id else None
         )
+        
+        async_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url if base_url else None,
+            organization=org_id if org_id else None
+        )
+
         cfg = {
             'client': client,
+            'async_client': async_client,
             'api_key': api_key,
             'model': model,
             'base_url': base_url,
@@ -86,7 +95,7 @@ class LLMClient:
             pass
         return 'text'
 
-    def __call__(self, messages: List[Dict[str, Any]], stream: bool = False, 
+    def invoke(self, messages: List[Dict[str, Any]], stream: bool = False, 
                 timeout: Optional[float] = None, max_retries: int = 3, output_dir: Optional[str] = None,
                 mode: Optional[str] = None) -> Dict[str, Any]:
         # Resolve mode: explicit > inferred > default 'text'
@@ -198,7 +207,121 @@ class LLMClient:
             except Exception as e:
                 raise
         
-        raise Exception(f"Failed after {max_retries} retries")
+        raise Exception(f"Failed to get response from LLM after {max_retries} retries.")
+
+    async def ainvoke(self, messages: List[Dict[str, Any]], stream: bool = False, 
+                timeout: Optional[float] = None, max_retries: int = 3, output_dir: Optional[str] = None,
+                mode: Optional[str] = None) -> Dict[str, Any]:
+        # Resolve mode: explicit > inferred > default 'text'
+        selected_mode = (mode or '').lower()
+        if selected_mode not in ('image', 'text', ''):
+            selected_mode = ''
+        if not selected_mode:
+            selected_mode = self._infer_mode_from_messages(messages)
+        if selected_mode in ('image'):
+            provider_name = self.active_vision_provider
+        else:
+            provider_name = self.active_text_provider
+
+        cfg = self._load_provider(provider_name)
+        client: AsyncOpenAI = cfg['async_client']
+        model = cfg['model']
+        temperature = cfg['temperature']
+
+        for callback in self.callbacks:
+            if hasattr(callback, 'on_llm_start'):
+                try:
+                    callback.on_llm_start({"name": provider_name}, [msg.get('content', '') for msg in messages])
+                except Exception:
+                    pass
+        
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    stream=stream,
+                    timeout=timeout,
+                    seed=42
+                )
+                
+                if stream:
+                    collected_chunks = []
+                    collected_content = ""
+                    
+                    async for chunk in response:
+                        collected_chunks.append(chunk)
+                        try:
+                            if chunk.choices and chunk.choices[0].delta.content:
+                                content_chunk = chunk.choices[0].delta.content
+                                collected_content += content_chunk
+                                for callback in self.callbacks:
+                                    if hasattr(callback, 'on_llm_new_token'):
+                                        callback.on_llm_new_token(content_chunk)
+                        except Exception:
+                            continue
+                    
+                    result = {
+                        "content": collected_content,
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0
+                        },
+                        "prompt_messages": messages
+                    }
+                else:
+                    # Some providers may not return usage
+                    try:
+                        usage = {
+                            "prompt_tokens": response.usage.prompt_tokens,
+                            "completion_tokens": response.usage.completion_tokens,
+                            "total_tokens": response.usage.total_tokens
+                        }
+                    except Exception:
+                        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                    result = {
+                        "content": response.choices[0].message.content,
+                        "usage": usage,
+                        "prompt_messages": messages
+                    }
+                
+                if output_dir and not stream:
+                    try:
+                        os.makedirs(output_dir, exist_ok=True)
+                        log_file_path = os.path.join(output_dir, 'token_usage.jsonl')
+                        log_entry = result['usage']
+                        with open(log_file_path, 'a', encoding='utf-8') as f:
+                            f.write(json.dumps(log_entry, ensure_ascii=False, default=str) + '\n')
+                    except Exception as e:
+                        print(f"[LLMClient] Warning: Failed to log token usage to {output_dir}. Error: {e}")
+                
+                for callback in self.callbacks:
+                    if hasattr(callback, 'on_llm_end'):
+                        try:
+                            callback.on_llm_end({
+                                "llm_output": {
+                                    "token_usage": result["usage"],
+                                    "model_name": model
+                                },
+                                "generations": [[{"text": result["content"]}]]
+                            })
+                        except Exception:
+                            pass
+                
+                return result
+                
+            except (openai.APIError, openai.APIConnectionError, openai.RateLimitError) as e:
+                retry_count += 1
+                wait_time = 2 ** retry_count
+                time.sleep(wait_time)
+                
+            except Exception as e:
+                raise
+        
+        raise Exception(f"Failed to get response from LLM after {max_retries} retries.")
 
 class DefaultCallback:
     """Default callback implementation for LLMClient that tracks LLM interactions without logging"""
