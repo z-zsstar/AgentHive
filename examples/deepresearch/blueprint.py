@@ -15,32 +15,10 @@ from deepresearch.tools import (
     DeleteItemTool,
     GetNodeContentTool,
     UpdateBlockTextTool,
-    SearchReportContentTool
+    SearchReportContentTool,
+    WebSearchToolWrapper
 )
-
-class WebSearchToolWrapper(ExecutableTool):
-    
-    name = "web_search"
-    description = "当报告中缺少所需信息时，使用此工具搜索网络以获取外部信息、数据或事实来支持你的写作。"
-    parameters = {
-        "type": "object", 
-        "properties": {
-            "query": {
-                "type": "string", 
-                "description": "要搜索的具体问题或关键词。"
-            }
-        }
-    }
-
-    def execute(self, query: str) -> str:
-        print(f"[WebSearchToolWrapper] -> 开始网络搜索: '{query}'")
-        try:
-            search_manager = WebSearchManager(context=self.context, depth=2)
-            return str(search_manager.run(query, headless=True))
-        except Exception as e:
-            error_message = f"网络搜索失败: {e}\n{traceback.format_exc()}"
-            print(error_message)
-            return error_message
+from .util.utils import time_it
 
 CREATOR_SYSTEM_PROMPT = """
 你的核心身份：自主研究专家 (创作者Agent)
@@ -116,6 +94,51 @@ class SelfReviewingAgent(BaseAgent):
 
         return reviewer_result
 
+    async def arun(self, user_input: str) -> Any:
+        print(f"\n{'='*20} [SelfReviewingAgent: {self.name}] 启动 (Async) {'='*20}")
+        print(f"负责范围 (workspace): '{self.context.get('workspace_node_path', 'ROOT')}'")
+        print(f"初始任务: {user_input[:200]}...")
+
+        print(f"\n--- [{self.name}] 阶段一：内容创作 (Async) ---")
+        creator_agent = BaseAgent(
+            llm_client=self.llm_client,
+            tools=self.tool_configs,
+            system_prompt=CREATOR_SYSTEM_PROMPT,
+            max_iterations=self.max_iterations,
+            context=self.context,
+            agent_instance_name=f"{self.name}_Creator"
+        )
+        creator_result = await creator_agent.arun(user_input)
+        print(f"\n--- [{self.name}] 创作阶段完成 (Async) ---")
+        print(f"创作者的最终思考: {creator_result}")
+
+        print(f"\n--- [{self.name}] 阶段二：自我审阅 (Async) ---")
+        reviewer_agent = BaseAgent(
+            llm_client=self.llm_client,
+            tools=self.tool_configs, 
+            system_prompt=REVIEWER_SYSTEM_PROMPT,
+            max_iterations=self.max_iterations,
+            context=self.context,
+            agent_instance_name=f"{self.name}_Reviewer"
+        )
+        
+        review_prompt = (
+            "你的创作伙伴刚刚完成了以下任务的初稿：\n"
+            f"--- 初始任务 ---\n{user_input}\n--- 结束 ---\n\n"
+            "现在，你的任务是对**你当前工作空间内的**这部分产出进行一次彻底的审阅和修正。"
+            "请检查：\n"
+            "1. **格式规范**：确保章节有正确的Markdown标题。\n"
+            "2. **内容完整性**：确保内容没有明显遗漏。\n"
+            "3. **整体检查**：确保markdown格式正确，内容连贯，没有明显的逻辑断层。\n"
+            "请使用工具进行必要的修改，直到你负责的部分完美无瑕。完成后，总结你的修改工作并结束任务。"
+        )
+        
+        reviewer_result = await reviewer_agent.arun(review_prompt)
+        print(f"\n--- [{self.name}] 审阅阶段完成 (Async) ---")
+        print(f"审阅者的最终思考: {reviewer_result}")
+
+        return reviewer_result
+
 class DeepResearchManager:
     """
     编排整个深度研究流程。
@@ -164,11 +187,11 @@ class DeepResearchManager:
             
         return current_sub_agent_config
 
+    @time_it
     def run(self, user_input: str):
         """
         启动深度研究流程，自动保存最终报告。
         """
-        start_time = time.time()
         
         # 获取config.ini的绝对路径
         from agenthive.llmclient import LLMClient
@@ -191,10 +214,51 @@ class DeepResearchManager:
             top_level_agent = build_agent(agent_config, self.context)
             print(f"\n--- 正在启动顶层 SelfReviewingAgent (最大深度: {self.depth}) ---")
             final_result = top_level_agent.run(user_input)
-            end_time = time.time()
-            elapsed_time = end_time - start_time
             print("\n\n" + "="*30 + " Agent运行结束 " + "="*30)
-            print(f"--- 总执行时间: {elapsed_time:.2f} 秒 ---")
+            print("\n--- 顶层Agent的最终结果 ---")
+            print(final_result)
+        
+        except Exception as e:
+            print(f"在深度研究运行过程中发生错误: {e}")
+            traceback.print_exc()
+        
+        finally:
+            report_tree = self.context.get("report_tree")
+            ref_manager = self.context.get("reference_manager")
+            if report_tree and ref_manager:
+                print("\n--- 正在生成最终报告 ---")
+                main_content_md = report_tree.to_markdown()
+                references_md = ref_manager.generate_references_section()
+                final_report_md = main_content_md + references_md
+                report_path = os.path.join(self.output, "final_report.md")
+                try:
+                    with open(report_path, "w", encoding="utf-8") as f:
+                        f.write(final_report_md)
+                    print(f"报告已成功生成并保存至: {report_path}")
+                except IOError as e:
+                    print(f"错误：无法将最终报告写入 '{report_path}'. 原因: {e}")
+            else:
+                print("警告：无法生成最终报告，因为上下文中缺少'report_tree'或'ref_manager'。")
+
+    @time_it
+    async def arun(self, user_input: str):
+        """
+        Asynchronously starts the deep research process and saves the final report.
+        """
+
+        self.context.set("user_input", user_input)
+        self.context.set("output", self.output)
+        os.makedirs(self.output, exist_ok=True)
+        self.context.set("report_tree", ReportNode(), shallow_copy=True)
+        self.context.set("reference_manager", ReferenceManager(), shallow_copy=True)
+        self.context.set("workspace_node_path", "")
+        
+        try:
+            agent_config = self.build_agent_config()
+            top_level_agent = build_agent(agent_config, self.context)
+            print(f"\n--- 正在启动顶层 SelfReviewingAgent (最大深度: {self.depth}) ---")
+            final_result = await top_level_agent.arun(user_input)
+            print("\n\n" + "="*30 + " Agent运行结束 " + "="*30)
             print("\n--- 顶层Agent的最终结果 ---")
             print(final_result)
         

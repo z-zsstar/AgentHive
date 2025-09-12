@@ -6,6 +6,42 @@ import traceback
 
 from agenthive.tools.basetool import ExecutableTool
 from deepresearch.models import ReportNode, ContentBlock, ReferenceManager
+from websearch.blueprint import WebSearchManager
+
+
+class WebSearchToolWrapper(ExecutableTool):
+    
+    name = "web_search"
+    description = "当报告中缺少所需信息时，使用此工具搜索网络以获取外部信息、数据或事实来支持你的写作。"
+    parameters = {
+        "type": "object", 
+        "properties": {
+            "query": {
+                "type": "string", 
+                "description": "要搜索的具体问题或关键词。"
+            }
+        }
+    }
+
+    def execute(self, query: str) -> str:
+        print(f"[WebSearchToolWrapper] -> 开始网络搜索: '{query}'")
+        try:
+            search_manager = WebSearchManager(context=self.context, depth=2)
+            return str(search_manager.run(query, headless=True))
+        except Exception as e:
+            error_message = f"网络搜索失败: {e}\n{traceback.format_exc()}"
+            print(error_message)
+            return error_message
+
+    async def aexecute(self, query: str) -> str:
+        print(f"[WebSearchToolWrapper] -> Starting async web search: '{query}'")
+        try:
+            search_manager = WebSearchManager(context=self.context, depth=2)
+            return str(await search_manager.arun(query, headless=True))
+        except Exception as e:
+            error_message = f"Async web search failed: {e}\n{traceback.format_exc()}"
+            print(error_message)
+            return error_message
 
 
 class AddItemTool(ExecutableTool):
@@ -30,12 +66,12 @@ class AddItemTool(ExecutableTool):
             },
             "item_type": {
                 "type": "string",
-                "enum": ["chapter", "paragraph", "list", "code", "table", "heading", "image"],
-                "description": "要创建的项目类型。使用 'chapter' 创建子章节, 'paragraph' 创建段落, 'image' 创建图片。"
+                "enum": ["chapter", "paragraph", "list", "code", "table", "heading", "image", "mermaid"],
+                "description": "要创建的项目类型。使用 'chapter' 创建子章节, 'paragraph' 创建段落, 'image' 创建图片, 'mermaid' 创建Mermaid图表。"
             },
             "text": {
                 "type": "string",
-                "description": "项目的文本内容。对于内容块是必需的（例如段落内容，列表项）。当 item_type 为 'image' 时，此内容将用作图片的描述（alt text）。如果 'item_type' 是 'chapter' 则忽略。"
+                "description": "项目的文本内容。对于内容块是必需的（例如段落内容，列表项）。当 item_type 为 'image' 时，此内容将用作图片的描述（alt text）。当 item_type 为 'mermaid' 时，此内容必须是有效的Mermaid图表语法。如果 'item_type' 是 'chapter' 则忽略。"
             },
             "image_url": {
                 "type": "string",
@@ -103,6 +139,10 @@ class AddItemTool(ExecutableTool):
                         return "错误：当 item_type 为 'image' 时, 'image_url' 参数是必需的。"
                     alt_text = text or ""
                     block_text = f"![{alt_text}]({image_url})"
+                elif item_type == "mermaid":
+                    if not text:
+                        return "错误：当 item_type 为 'mermaid' 时, 'text' 参数是必需的，且必须包含有效的Mermaid语法。"
+                    block_text = f"```mermaid\n{text}\n```"
                 else:
                     if text is None:
                         return f"错误：'text' 参数对于 item_type '{item_type}' 是必需的。"

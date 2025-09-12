@@ -118,6 +118,29 @@ class FocusedChapterEditor(BaseAssistant):
             error_message = f"错误: {self.name} 在执行子任务时失败 ({task_for_error_log}): {type(e).__name__} - {e}"
             return error_message
 
+    async def aexecute(self, **kwargs: Any) -> str:
+        task_for_error_log: Optional[str] = f"Chapter: {kwargs.get('chapter_path')}"
+        try:
+            sub_agent_prepared_context = self._prepare_sub_agent_context(**kwargs)
+            task_prompt = self._build_sub_agent_prompt(**kwargs)
+            sub_agent_instance_name = f"{self.name}_sub_{kwargs.get('chapter_path', 'agent')}"
+            sub_agent_config = AgentConfig(
+                agent_class=self.agent_class_to_create,
+                tool_configs=self.default_sub_agent_tool_classes,
+                system_prompt=self.sub_agent_system_prompt,
+                max_iterations=self.default_sub_agent_max_iterations,
+                agent_instance_name=sub_agent_instance_name,
+            )
+            sub_agent = build_agent(
+                agent_config=sub_agent_config,
+                context=sub_agent_prepared_context,
+            )
+            return await sub_agent.arun(task_prompt)
+        except Exception as e:
+            traceback.print_exc()
+            error_message = f"错误: {self.name} 在执行子任务时失败 ({task_for_error_log}): {type(e).__name__} - {e}"
+            return error_message
+
 class ParallelChapterEditor(ParallelBaseAssistant):
     name = "ParallelChapterEditor"
     description = (
@@ -164,3 +187,12 @@ class ParallelChapterEditor(ParallelBaseAssistant):
         if len(paths) != len(set(paths)):
             return "错误：在并行任务列表中检测到重复的 'chapter_path'。每个并行章节任务必须针对一个唯一的路径。"
         return super().execute(**kwargs)
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        tasks = self._extract_task_list(**kwargs)
+        if not tasks: 
+            return json.dumps([], ensure_ascii=False)
+        paths = [task.get("chapter_path") for task in tasks if task.get("chapter_path")]
+        if len(paths) != len(set(paths)):
+            return "错误：在并行任务列表中检测到重复的 'chapter_path'。每个并行章节任务必须针对一个唯一的路径。"
+        return await super().aexecute(**kwargs)

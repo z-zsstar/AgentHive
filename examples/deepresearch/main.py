@@ -1,6 +1,8 @@
 import argparse
 import sys
-from blueprint import DeepResearchManager
+import asyncio
+
+from .blueprint import DeepResearchManager
 
 DEFAULT_TASK = """
 请撰写一篇关于“大型语言模型（LLM）多智能体协作”的深度学术论文。
@@ -13,7 +15,7 @@ DEFAULT_TASK = """
 **请务必体现出你作为“自主研究专家”的深度思考和原创性贡献。**
 """
 
-def main():
+async def amain():
     """
     Main function to run the Deep Research agent.
     Handles command-line arguments for a single run and enters an interactive loop for multiple runs.
@@ -53,7 +55,7 @@ def main():
     # If a task is provided as a command-line argument, execute it and exit.
     if args.task:
         print(f"Executing task: \"{args.task}\"")
-        manager.run(user_input=args.task)
+        await manager.arun(user_input=args.task)
         print("Task finished.")
         return
 
@@ -72,7 +74,7 @@ def main():
                 print(f"No input provided, using default task.\nExecuting task: \"{DEFAULT_TASK}\"")
                 user_input = DEFAULT_TASK
             
-            manager.run(user_input=user_input)
+            await manager.arun(user_input=user_input)
             print("Task finished. You can enter a new task.")
 
         except KeyboardInterrupt:
@@ -85,4 +87,7 @@ def main():
             pass
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(amain())
+    except KeyboardInterrupt:
+        print("\nSession terminated by user.")
