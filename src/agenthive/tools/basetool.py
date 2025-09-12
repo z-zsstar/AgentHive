@@ -89,3 +89,12 @@ class ExecutableTool(ABC):
     def execute(self, **kwargs: Any) -> str:
         pass
 
+    def format_for_prompt(self) -> str:
+        """Formats the tool's information for inclusion in a prompt."""
+        import json
+        return (
+            f"Tool Name: {self.name}\n"
+            f"Description: {self.description}\n"
+            f"Parameters Schema: {json.dumps(self.parameters, indent=2, ensure_ascii=False)}"
+        )
+

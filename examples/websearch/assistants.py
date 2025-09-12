@@ -1,66 +1,36 @@
-import os
-import traceback
-from typing import List, Dict, Any
-from agenthive.base import Message
+from typing import Dict, Any
+from agenthive.tools.basetool import FlexibleContext
 from agenthive.core.builder import build_agent, AgentConfig
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from agenthive.core.assistants import ParallelBaseAssistant
 
 
-class WebParallelAssistant(ExecutableTool):
-    """An assistant that can process multiple web-based tasks in parallel.
-    Each task is handled by a separate WebSearchAgent instance in its own browser context.
-    """
+
+class WebParallelAssistant(ParallelBaseAssistant):
     name: str = "ParallelWebExtractor"
     description: str = """
     一个可以并行处理多个网络任务的助手。它特别适用于从指定网页中提取相关信息，或从给定的PDF链接中提取内容。
     每个任务由一个独立的WebSearchAgent实例在自己的浏览器上下文中处理。
     """
-    parameters: Dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "tasks": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "一个描述性任务列表，用于并行执行。每个任务字符串必须明确包含要访问的URL（网页或PDF链接），并指明需要提取的具体信息。"
-            }
-        },
-        "required": ["tasks"]
-    }
 
-    def __init__(self, sub_agent_config: AgentConfig, context: FlexibleContext, **kwargs: Any):
-        super().__init__(context=context)
-        self.sub_agent_config = sub_agent_config
+    async def _aprepare_sub_agent_context(self, **kwargs: Any) -> FlexibleContext:
+        """
+        Asynchronously prepares the context for the sub-agent.
+        This override creates a new, isolated Playwright browser context for each sub-agent.
+        """
+        async_browser = self.context.get("playwright_async_browser")
+        if not async_browser:
+            raise ValueError("Async browser object not found in context for sub-agent.")
 
-    def execute(self, **kwargs: Any) -> List[Dict[str, Any]]:
-        """Executes a list of tasks in parallel, each with its own agent and browser context."""
-        results = []
-        browser = self.context.get("playwright_browser")
-        output_dir = self.context.get("output")
-        if not browser:
-            raise ValueError("Browser object not found in context. The assistant requires a running Playwright browser.")
-
-        for task in kwargs.get("tasks", []):
-            browser_context = None
-            try:
-
-                browser_context = browser.new_context()
-                sub_agent_context = FlexibleContext()
-                sub_agent_context.set("output", os.path.join(output_dir, 'webassistant'))
-                sub_agent_context.set('playwright_browser_context', browser_context)
-                sub_agent_context.set('playwright_browser', browser)
-
-                sub_agent = build_agent(self.sub_agent_config, sub_agent_context)
-
-                initial_message = Message(role="user", content=task)
-                response = sub_agent.run(initial_message)
-                results.append({"task": task, "result": response})
-
-            except Exception as e:
-                error_message = f"Error processing task '{task}': {traceback.format_exc()}"
-                print(error_message)
-                results.append({"task": task, "error": str(e)})
-            finally:
-                if browser_context:
-                    browser_context.close()
+        # Create a new, independent copy of the context
+        sub_agent_context = self.context.copy()
         
-        return results
+        # Create a new browser context and page for the sub-agent
+        async_browser_context = await async_browser.new_context()
+        sub_agent_context.set('playwright_async_browser_context', async_browser_context, shallow_copy=True)
+        sub_agent_context.set('playwright_async_browser', async_browser, shallow_copy=True)
+        
+        # Remove reference to the parent's page to ensure the sub-agent uses its own
+        if 'playwright_async_page' in sub_agent_context:
+            del sub_agent_context.playwright_async_page
+            
+        return sub_agent_context

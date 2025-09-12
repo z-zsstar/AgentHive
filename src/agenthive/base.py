@@ -190,12 +190,12 @@ class BaseAgent(JSONOutputLLM):
         context: Optional[FlexibleContext] = None,
         agent_instance_name: Optional[str] = None
     ):
+        self.context = context if context is not None else FlexibleContext()
         self.llm_client = llm_client or LLMClient()
         self.tool_configs = tools if tools is not None else []
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
         self.history_strategy = history_strategy
-        self.context = context if context is not None else FlexibleContext()
         if messages_filters is not None:
             self.messages_filters = messages_filters
 
@@ -252,7 +252,9 @@ class BaseAgent(JSONOutputLLM):
 
         current_agent_log_dir: str
         if parent_log_dir and isinstance(parent_log_dir, str):
-            current_agent_log_dir = os.path.join(parent_log_dir, f"{sanitized_agent_id}_logs")
+            # Create a dedicated 'subagents' directory to make the hierarchy clearer.
+            subagents_dir = os.path.join(parent_log_dir, "subagents")
+            current_agent_log_dir = os.path.join(subagents_dir, f"{sanitized_agent_id}_logs")
         else:
             output_base_dir = self.context.get("output", ".")
             if not isinstance(output_base_dir, str) or not output_base_dir.strip():
@@ -269,8 +271,8 @@ class BaseAgent(JSONOutputLLM):
             print(f"[BaseAgent Setup] Warning: Could not create/access agent log directory '{current_agent_log_dir}'. Error: {e}. Message logging will be disabled.")
             self.messages_log_path = None
 
-    def _initialize_tools_from_list(self, tool_inputs: List[Union[Type[ExecutableTool], ExecutableTool]], context: Optional[FlexibleContext]) -> List[Tool]:
-        final_tools_list: List[Tool] = []
+    def _initialize_tools_from_list(self, tool_inputs: List[Union[Type[ExecutableTool], ExecutableTool]], context: Optional[FlexibleContext]) -> List[ExecutableTool]:
+        final_tools_list: List[ExecutableTool] = []
         processed_names = set()
 
         if not tool_inputs:
@@ -320,14 +322,7 @@ class BaseAgent(JSONOutputLLM):
                         print(f"Warning: Tool instance {tool_name} has a non-callable 'execute' attribute. Skipping.")
                         continue
 
-                    tool_obj = Tool(
-                        name=getattr(tool_instance, 'name'),
-                        description=getattr(tool_instance, 'description'),
-                        function=execute_method,
-                        parameters=getattr(tool_instance, 'parameters'),
-                        timeout=getattr(tool_instance, 'timeout', 30)
-                    )
-                    final_tools_list.append(tool_obj)
+                    final_tools_list.append(tool_instance)
 
             except Exception as e:
                 print(f"Error: Processing tool '{tool_name}' failed: {e}")
@@ -406,7 +401,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
         def execute_in_thread():
             try:
                 safe_input_for_exec = {str(k): v for k, v in tool_input.items()}
-                result = tool.function(**safe_input_for_exec)
+                result = tool.execute(**safe_input_for_exec)
                 result_queue.put(("success", result))
             except Exception as e:
                 # print(f"Exception in tool '{tool_name}' execution thread: {e}")
@@ -474,14 +469,21 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             # Ensure tool_input keys are strings for safe execution
             safe_input_for_exec = {str(k): v for k, v in tool_input.items()}
             
-            # Use run_in_executor to run the synchronous tool function in a thread pool
-            future = loop.run_in_executor(
-                None,  # Use the default executor
-                functools.partial(tool.function, **safe_input_for_exec)
-            )
-            
-            # Wait for the result with a timeout
-            result = await asyncio.wait_for(future, timeout=timeout_seconds)
+            # 优先使用工具自带的异步执行方法
+            if hasattr(tool, 'aexecute') and callable(getattr(tool, 'aexecute')):
+                # 直接在当前事件循环中运行异步方法
+                # This avoids issues with pickling when using asyncio.gather with assistants
+                result = await asyncio.wait_for(
+                    tool.aexecute(**safe_input_for_exec), 
+                    timeout=timeout_seconds
+                )
+            else:
+                # 如果工具没有异步方法，则在线程池中运行同步方法
+                future = loop.run_in_executor(
+                    None,  # Use the default executor
+                    functools.partial(tool.execute, **safe_input_for_exec)
+                )
+                result = await asyncio.wait_for(future, timeout=timeout_seconds)
 
             tool_input_str_for_log = json.dumps(tool_input, ensure_ascii=False, default=str)
             
@@ -967,57 +969,154 @@ Retry generating the response.
             raw_response = ""
 
             for retry_count in range(max_parse_retries):
+                print(f"----- Calling LLM (Async Stream Mode, Attempt {retry_count+1}/{max_parse_retries}) -----")
                 try:
-                    raw_response_generator = self.llm_client.invoke_async(prompt_messages, stream=True)
-                    current_parsed_content = {}
-                    async for chunk in raw_response_generator:
-                        raw_response += chunk
-                        parsed_response = self._parse_llm_response(raw_response)
-                        
-                        if parsed_response != current_parsed_content:
-                            conversation.append({
-                                "role": "assistant_partial",
-                                "content": parsed_response
-                            })
-                            current_parsed_content = parsed_response
+                    output_dir = self.context.get("output")
+                    response_obj = await self.get_llm_response_async(prompt_messages, output_dir=output_dir)
+                    raw_response = response_obj['content']
+                    print(f"----- LLM Raw Response (first 500) -----\n{raw_response[:500]}{'...' if len(raw_response)>500 else ''}\n" + "-"*20)
                     
-                    if parsed_response != current_parsed_content:
+                    if retry_count == 0:
+                        self.add_message('assistant', raw_response)
                         conversation.append({
-                            "role": "assistant_partial",
-                            "content": parsed_response
+                            "role": "assistant",
+                            "content": raw_response
                         })
                     
+                    print(f"----- Parsing LLM Response (Async Stream Mode, Attempt {retry_count+1}/{max_parse_retries}) -----")
+                    parsed_response = self._parse_llm_response(raw_response)
+                    print(f"----- Parsed Result -----\n{json.dumps(parsed_response, indent=2, ensure_ascii=False)}\n" + "-"*20)
+                    
+                    if "error" in parsed_response:
+                        raise ValueError(f"Parsing error: {parsed_response['error']}: {parsed_response.get('message', 'Unknown error')}")
+                    
                     break
-
-                except ValueError as e:
-                    print(f"Parsing error (attempt {retry_count + 1}/{max_parse_retries}): {e}")
-                    if retry_count == max_parse_retries - 1:
-                        print(f"Failed to parse LLM response after {max_parse_retries} attempts.")
-                        raise
-
+                    
                 except Exception as e:
-                    print(f"Error during LLM invocation or stream processing: {e}")
-                    raise
-
-            if parsed_response:
-                conversation.append({"role": "assistant", "content": parsed_response})
-
-                if "tool_code" in parsed_response:
-                    tool_code = parsed_response["tool_code"]
-                    print(f"Tool code to execute:\n{tool_code}")
-                    tool_output = await self._execute_tool_async(tool_code) # Assuming an async tool execution
-                    self.add_message("tool", tool_output, tool_call_id=tool_code)
-                    conversation.append({"role": "tool", "content": tool_output})
-                elif "final_answer" in parsed_response:
-                    final_answer = parsed_response["final_answer"]
-                    print(f"Final answer:\n{final_answer}")
-                    conversation.append({"role": "assistant", "content": final_answer})
-                    return conversation # End the stream after final answer
+                    print(f"Response parsing failed (Async Stream Mode, Attempt {retry_count+1}/{max_parse_retries}): {e}")
+                    if retry_count < max_parse_retries - 1:  
+                        format_reminder = self._get_response_format_prompt()
+                        error_message_to_llm = f"""
+Your previous response could not be parsed or validated: {str(e)}.
+Raw response started with: {raw_response[:200]}...
+Please strictly follow the required JSON schema:
+{format_reminder}
+Retry generating the response.
+"""
+                        self.add_message('user', error_message_to_llm, type='parse_error')
+                        conversation.append({
+                            "role": "system_feedback_to_llm",
+                            "content": error_message_to_llm
+                        })
+                        prompt_messages = self._prepare_llm_request_messages()  
+                    else:
+                        print(f"Maximum retry attempts reached, failed to parse LLM response (Async Stream Mode)")
+                        parsed_response = {
+                            "error": "parse_error_max_retries",
+                            "thought": f"After {max_parse_retries} attempts, still unable to generate a valid formatted response",
+                            "action": "finish",
+                            "action_input": {"final_response": "Sorry, I encountered a technical issue with response formatting."},
+                            "status": "complete"
+                        }
+                        conversation.append({
+                            "role": "error",
+                            "content": f"After {max_parse_retries} attempts, still unable to parse LLM response"
+                        })
+            
+            if parsed_response is None or "error" in parsed_response:
+                print("Failed to parse LLM response, using default error response (Async Stream Mode)")
+                parsed_response = {
+                    "thought": "Failed to parse response",
+                    "action": "finish",
+                    "action_input": {"final_response": "Sorry, I encountered a technical issue and couldn't process your request correctly."},
+                    "status": "complete"
+                }
+                if "error" not in conversation[-1]["role"]:  
+                    conversation.append({
+                        "role": "error",
+                        "content": "Failed to parse response, cannot continue processing"
+                    })
+            
+            action = parsed_response.get("action")
+            action_input = parsed_response.get("action_input")
+            status = parsed_response.get("status")
+            
+            if status == "complete" or (action == "finish" and status != "continue"):
+                print("----- Completion status detected (Async Stream Mode) -----")
+                final_response_content = "Task completed."
+                if isinstance(action_input, dict) and "final_response" in action_input:
+                    final_response_content = action_input["final_response"]
+                elif isinstance(action_input, str):
+                    final_response_content = action_input
+                elif parsed_response.get("thought"):
+                    final_response_content = f"Completed. Last thought: {parsed_response.get('thought')}"
+                
+                if conversation and conversation[-1].get("role") == "assistant_thought_process":
+                    conversation[-1] = {"role": "assistant", "content": final_response_content}
                 else:
-                    print(f"Parsed response (first 200 chars): {str(parsed_response)[:200]}")
-            else:
-                print("No parsed response from LLM.")
-                conversation.append({"role": "error", "content": "No response or unparseable response from LLM"})
+                    conversation.append({"role": "assistant", "content": final_response_content})
+                print(f"----- Final Response: {str(final_response_content)[:200]}...")
+                break  
+            
+            elif action and action != "finish" and status == "continue":  
+                print(f"----- Requesting tool execution: {action} (Async Stream Mode) -----")
+                
+                if not isinstance(action_input, dict):
+                    tool_error_msg = f"Error: Tool '{action}' expects 'action_input' to be a dictionary, received {type(action_input)}: {str(action_input)[:100]}..."
+                    print(f"----- {tool_error_msg}")
+                    self.add_message('user', tool_error_msg, type='tool_result_error')
+                    
+                    conversation.append({
+                        "role": "tool_error",
+                        "tool_name": action,
+                        "content": tool_error_msg
+                    })
+                else:
+                    conversation.append({
+                        "role": "tool_call",
+                        "tool_name": action,
+                        "tool_input": action_input
+                    })
+                    print(f"----- Executing tool '{action}' with input: {json.dumps(action_input, ensure_ascii=False, default=str)}")
+                    tool_result_str = await self._execute_tool_async(action, action_input)
+                    print(f"----- Tool '{action}' result (first 500 chars): {tool_result_str[:500]}{'...' if len(tool_result_str)>500 else ''}")
+                    self.add_message('user', tool_result_str, type='tool_result')
+                    
+                    conversation.append({
+                        "role": "tool_result",
+                        "tool_name": action,
+                        "content": tool_result_str
+                    })
+            
+            else:  
+                print("----- Warning: LLM response format inconsistency or status mismatch with action (Async Stream Mode) -----")
+                status_mismatch = f"Error: Response is inconsistent. If action is '{action}', status should be {'complete' if action == 'finish' else 'continue'}, but received '{status}'."
+                self.add_message('user', status_mismatch, type='error')
+                
+                conversation.append({
+                    "role": "error",
+                    "content": status_mismatch
+                })
+                continue
         
-        conversation.append({"role": "error", "content": "Max iterations reached without a final answer."}) # Indicate end with an error if no final answer
+        else:  
+            print(f"----- Max iterations reached ({self.max_iterations}) (Async Stream Mode) -----")
+            last_message_content = "Max iterations reached."
+            if self.messages and self.messages[-1].role == 'assistant':
+                last_assistant_response = self.messages[-1].content
+                try:
+                    parsed_last = self._parse_llm_response(last_assistant_response)
+                    if isinstance(parsed_last.get("action_input"), dict) and "final_response" in parsed_last["action_input"]:
+                        last_message_content = parsed_last["action_input"]["final_response"]
+                    elif parsed_last.get("thought"):
+                         last_message_content = f"Max iterations. Last thought: {parsed_last.get('thought')}"
+                except Exception:
+                    last_message_content = f"Max iterations. Last raw response: {last_assistant_response[:200]}..."
+            
+            conversation.append({
+                "role": "assistant",
+                "content": last_message_content
+            })
+
+        print(f"===== Agent run finished (Async Stream Mode) =====")
         return conversation

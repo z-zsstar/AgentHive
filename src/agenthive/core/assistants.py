@@ -79,6 +79,14 @@ class BaseAssistant(ExecutableTool):
         sub_agent_context = self.context.copy()
         return sub_agent_context
 
+    async def _aprepare_sub_agent_context(self, **kwargs: Any) -> FlexibleContext:
+        """
+        在创建子代理之前异步地准备其上下文。
+        默认实现是调用同步版本。
+        子类可以重写此方法以执行异步I/O操作（例如，为每个代理创建隔离的网络会话或浏览器上下文）。
+        """
+        return self._prepare_sub_agent_context(**kwargs)
+
     def _build_sub_agent_prompt(self, **kwargs: Any) -> str:
         """
         为子代理构建完整的任务提示。
@@ -154,7 +162,7 @@ class BaseAssistant(ExecutableTool):
             
             # Phase 2: Prepare context (can be overridden)
             try:
-                sub_agent_prepared_context = self._prepare_sub_agent_context(**kwargs)
+                sub_agent_prepared_context = await self._aprepare_sub_agent_context(**kwargs)
             except Exception as e:
                 return f"错误: {str(e)}"
             
@@ -269,6 +277,14 @@ class ParallelBaseAssistant(ExecutableTool):
         """
         sub_agent_context = self.context.copy()
         return sub_agent_context
+
+    async def _aprepare_sub_agent_context(self, **kwargs: Any) -> FlexibleContext:
+        """
+        在创建子代理之前异步地准备其上下文 (并行版本)。
+        默认实现是调用同步版本。
+        子类可以重写此方法以执行异步I/O操作。
+        """
+        return self._prepare_sub_agent_context(**kwargs)
 
     def _build_sub_agent_prompt(self, **kwargs: Any) -> str:
         """
@@ -395,7 +411,7 @@ class ParallelBaseAssistant(ExecutableTool):
             
             # Phase 3: Prepare context
             try:
-                sub_agent_prepared_context = self._prepare_sub_agent_context(
+                sub_agent_prepared_context = await self._aprepare_sub_agent_context(
                     **task_details_with_index
                 )
             except Exception as e:
@@ -417,8 +433,14 @@ class ParallelBaseAssistant(ExecutableTool):
                 context=sub_agent_prepared_context
             )
             
-            result = await sub_agent.arun(full_task_prompt)
-            return result
+            try:
+                result = await sub_agent.arun(full_task_prompt)
+                return result
+            finally:
+                # Ensure the sub-agent's browser context is always closed to prevent resource leaks.
+                if sub_agent_context := sub_agent.context.get('playwright_async_browser_context'):
+                    if hasattr(sub_agent_context, 'close') and callable(getattr(sub_agent_context, 'close')):
+                        await sub_agent_context.close()
 
         except Exception as e:
             error_desc_snippet = str(task_for_error_log)[:50]

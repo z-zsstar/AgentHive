@@ -2,6 +2,8 @@ import os
 import time
 import openai
 import json
+import asyncio
+import pathlib
 from openai import OpenAI, AsyncOpenAI
 from typing import List, Dict, Any, Optional
 
@@ -17,8 +19,35 @@ class LLMClient:
         if not hasattr(self, 'initialized'):
             import configparser
             self.config = configparser.ConfigParser()
-            self.config.read(config_path, encoding='utf-8')
             
+            # Intelligently find config.ini by searching upwards from the library location.
+            # This makes the library more robust when used in projects like the 'examples'.
+            config_path_to_read = None
+            # 1. Check provided path relative to current working directory
+            if pathlib.Path(config_path).is_file():
+                config_path_to_read = config_path
+            else:
+                # 2. Search upwards from this file's location for the project root
+                try:
+                    current_path = pathlib.Path(__file__).resolve().parent
+                    # Search up to 4 levels up for the project root
+                    for _ in range(4): 
+                        potential_path = current_path / 'config.ini'
+                        if potential_path.is_file():
+                            config_path_to_read = potential_path
+                            break
+                        current_path = current_path.parent
+                except Exception:
+                    pass # Failsafe
+
+            if config_path_to_read:
+                print(f"[LLMClient] Reading configuration from: {config_path_to_read}")
+                self.config.read(str(config_path_to_read), encoding='utf-8')
+            else:
+                print(f"[LLMClient] Warning: Could not find '{config_path}'. Trying to read from default locations.")
+                # Fallback to just trying the default name in cwd, which might fail
+                self.config.read(config_path, encoding='utf-8')
+
             # Active provider names
             self.active_text_provider = self.config.get('common', 'active_model', fallback='openai')
             self.active_vision_provider = self.config.get('common', 'active_vision_model', fallback=self.active_text_provider)
@@ -42,7 +71,19 @@ class LLMClient:
         if provider_name in self._provider_cache:
             return self._provider_cache[provider_name]
         section = provider_name
-        api_key = self.config.get(section, 'api_key', fallback=os.environ.get('OPENAI_API_KEY'))
+        
+        # Prioritize provider-specific environment variables for API keys.
+        # e.g., DEEPSEEK_API_KEY, OPENAI_API_KEY
+        env_var_name = f"{provider_name.upper()}_API_KEY"
+        if provider_name.lower() == 'openai':
+            # Handle the common case for OpenAI
+            env_var_name = 'OPENAI_API_KEY'
+        
+        api_key = os.environ.get(env_var_name)
+        if not api_key:
+            # Fallback to config.ini if environment variable is not set
+            api_key = self.config.get(section, 'api_key', fallback=None)
+            
         model = self.config.get(section, 'model', fallback='gpt-4o')
         base_url = self.config.get(section, 'base_url', fallback=None)
         org_id = self.config.get(section, 'org_id', fallback=None)
@@ -316,7 +357,7 @@ class LLMClient:
             except (openai.APIError, openai.APIConnectionError, openai.RateLimitError) as e:
                 retry_count += 1
                 wait_time = 2 ** retry_count
-                time.sleep(wait_time)
+                await asyncio.sleep(wait_time)
                 
             except Exception as e:
                 raise
