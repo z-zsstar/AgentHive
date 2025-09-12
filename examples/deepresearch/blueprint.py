@@ -192,15 +192,6 @@ class DeepResearchManager:
         """
         启动深度研究流程，自动保存最终报告。
         """
-        
-        # 获取config.ini的绝对路径
-        from agenthive.llmclient import LLMClient
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        config_path = os.path.join(project_root, 'config.ini')
-
-        # 创建并设置LLMClient
-        llm_client = LLMClient(config_path=config_path)
-        self.context.set("llm_client", llm_client)
 
         self.context.set("user_input", user_input)
         self.context.set("output", self.output)
