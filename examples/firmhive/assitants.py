@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Any, Dict, Optional, List, Union, Type
 
 from agenthive.base import BaseAgent
@@ -106,6 +107,9 @@ class DeepFileAnalysisAssistant(BaseAssistant):
             f"Current task:\n{task_description}"
         )
 
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)
+
 class DeepDirectoryAnalysisAssistant(BaseAssistant):
     name = "DeepDirectoryAnalysisAssistant"
     description = """
@@ -203,6 +207,9 @@ class DeepDirectoryAnalysisAssistant(BaseAssistant):
             f"The user's initial request is:\n{usr_init_msg_content}\n\n"
             f"Current task:\n{task_description}"
         )
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)
 
 class ParallelDeepFileAnalysisDelegator(ParallelBaseAssistant):
     name = "ParallelDeepFileAnalysisDelegator"
@@ -311,6 +318,9 @@ class ParallelDeepFileAnalysisDelegator(ParallelBaseAssistant):
             f"Current task:\n{task_description}"
         )
 
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)
+
 class ParallelDeepDirectoryAnalysisDelegator(ParallelBaseAssistant):
     name = "ParallelDeepDirectoryAnalysisDelegator"
     description = """
@@ -416,6 +426,9 @@ class ParallelDeepDirectoryAnalysisDelegator(ParallelBaseAssistant):
             f"The user's initial request is:\n{usr_init_msg_content}\n\n"
             f"Current task:\n{task_description}"
         )
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)
 
 class DescriptiveFileAnalysisAssistant(BaseAssistant):
     name = "DescriptiveFileAnalysisAssistant"
@@ -523,6 +536,9 @@ class DescriptiveFileAnalysisAssistant(BaseAssistant):
             f"Current task:\n{task_description}"
         )
 
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)
+
 
 class DescriptiveDirectoryAnalysisAssistant(BaseAssistant):
     name = "DescriptiveDirectoryAnalysisAssistant"
@@ -626,3 +642,6 @@ class DescriptiveDirectoryAnalysisAssistant(BaseAssistant):
             f"The user's initial request is:\n{usr_init_msg_content}\n\n"
             f"Current task:\n{task_description}"
         )
+
+    async def aexecute(self, **kwargs: Any) -> str:
+        return await super().aexecute(**kwargs)

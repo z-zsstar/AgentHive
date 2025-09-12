@@ -4,6 +4,7 @@ import json
 import time
 import argparse
 import threading
+import asyncio
 import subprocess
 import uuid
 from typing import Dict, List, Any, Optional, Type, Union
@@ -171,6 +172,18 @@ class PlannerAgent(BaseAgent):
         self.kb_storage_agent.run(user_input=store_prompt)
         return findings
     
+    async def arun(self, user_input: str = None) -> Any:
+        findings = str(await super().arun(user_input=user_input))
+        
+        store_prompt = (
+            f"新的分析结果如下:\n"
+            f"{findings}\n\n"
+            f"基于上述分析结果，您当前的任务是确定它们是否存在风险。"
+            f"如果存在，您需要存储和组织分析结果。"
+            f"用户的核心需求是: {self.context.get('user_input', '未提供')}\n"
+        )
+        await self.kb_storage_agent.arun(user_input=store_prompt)
+        return findings
 
 def create_kb_agent_config(
     max_iterations: int = 30,
@@ -435,6 +448,19 @@ class FirmwareMasterAgent:
         finally:
             self._stop_container()
 
+    async def arun(self, mode: str = 'all', max_workers: int = 5):
+        try:
+            if mode in ['analyze', 'all']:
+                await self._arun_analysis()
+            
+            if mode in ['verify', 'all']:
+                await self.averify(max_workers=max_workers)
+            
+            self.summary()
+            print(f"\n--- Execution complete (Mode: {mode}) ---")
+        finally:
+            self._stop_container()
+
     def _run_analysis(self):
         print("\n--- Running in Analysis Mode ---")
         initial_task = (
@@ -455,6 +481,30 @@ class FirmwareMasterAgent:
         
         start_time = time.time()
         master_agent.run(user_input=initial_task)
+        end_time = time.time()
+        self.analysis_duration = end_time - start_time
+        print(f"\n--- Analysis complete in {self.analysis_duration:.2f} seconds ---")
+
+    async def _arun_analysis(self):
+        print("\n--- Running in Analysis Mode (Async) ---")
+        initial_task = (
+            f"Please analyze the firmware comprehensively, combining it with the user's core requirements. "
+            f"Currently located in firmware directory: {os.path.basename(self.firmware_root_path)}, "
+            f"user's core requirement is: {self.user_input} "
+            f"Please start from this directory and analyze files and subdirectories layer by layer."
+        )
+        
+        master_agent_config = create_firmware_analysis_blueprint(
+            include_kb=True, 
+            verification=False,
+            max_levels=self.max_levels,
+            max_iterations_per_agent=self.max_iterations
+        )
+        
+        master_agent = build_agent(master_agent_config, self.context)
+        
+        start_time = time.time()
+        await master_agent.arun(user_input=initial_task)
         end_time = time.time()
         self.analysis_duration = end_time - start_time
         print(f"\n--- Analysis complete in {self.analysis_duration:.2f} seconds ---")
@@ -505,7 +555,7 @@ class FirmwareMasterAgent:
         task_start_time = time.time()
         tokens_before = self.calculate_token_usage()
 
-        verification_analyzer_agent = build_agent(verification_analyzer_config, context=task_context)
+        verification_analyzer_agent = build_agent(agent_config, context=task_context)
         verification_result = verification_analyzer_agent.run(user_input=verification_prompt)
         
         task_end_time = time.time()
@@ -568,6 +618,43 @@ class FirmwareMasterAgent:
         end_time = time.time()
         self.verification_duration += (end_time - start_time)
         print(f"\nThis concurrent verification took {end_time - start_time:.2f} seconds. Total verification time accumulated: {self.verification_duration:.2f} seconds.")
+
+    async def averify(self, max_workers: int = 5):
+        """
+        [Async] Verifies all findings from the knowledge base.
+        """
+        print("\n--- Running in Async Verification Mode ---")
+        start_time = time.time()
+        
+        findings_to_process = self._load_findings_from_kb()
+
+        if not findings_to_process:
+            print("No findings selected for verification.")
+            return
+
+        print(f"Total of {len(findings_to_process)} findings will be verified [concurrently], using {max_workers} concurrent tasks.")
+
+        verification_analyzer_config = create_firmware_analysis_blueprint(
+            include_kb=False,
+            verification=True,
+        )
+
+        async def _verify_one_finding_async_wrapper(finding, config):
+            # This is a simplified wrapper. The original _verify_one_finding has locking and file I/O
+            # which needs to be made async-safe. For now, we'll run it in a thread.
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._verify_one_finding, finding, config)
+
+        tasks = [
+            _verify_one_finding_async_wrapper(finding, verification_analyzer_config)
+            for finding in findings_to_process
+        ]
+        
+        await asyncio.gather(*tasks)
+
+        end_time = time.time()
+        self.verification_duration += (end_time - start_time)
+        print(f"\nThis async verification took {end_time - start_time:.2f} seconds. Total verification time accumulated: {self.verification_duration:.2f} seconds.")
 
     def generate_report(self):
         """Generates a Markdown analysis report."""
@@ -665,7 +752,7 @@ class FirmwareMasterAgent:
         except IOError as e:
             print(f"Could not write summary file {summary_path}: {e}")
     
-if __name__ == "__main__":
+def main():
     default_user_input = ("Perform a comprehensive security analysis of the firmware. The core objective is to identify and report complete, viable attack chains.")
     
     parser = argparse.ArgumentParser(description="Firmware Analysis Master Agent")
@@ -717,3 +804,45 @@ if __name__ == "__main__":
         print("\n--- Running in Analysis and Verification Mode ---")
         summary = master_agent.run()
         print("\n--- Analysis and Verification complete ---")
+
+async def amain():
+    default_user_input = ("Perform a comprehensive security analysis of the firmware. The core objective is to identify and report complete, viable attack chains.")
+    
+    parser = argparse.ArgumentParser(description="Firmware Analysis Master Agent (Async)")
+    parser.add_argument("--search_dir", type=str, required=True, help="Path to the directory to search for firmware root.")
+    parser.add_argument("--output", type=str, default="output", help="Base directory for analysis output.")
+    parser.add_argument("--mode", type=str, choices=['analyze', 'verify', 'all'], default='all', 
+                        help="Execution mode: 'analyze' only, 'verify' only, or 'all' (analyze then verify).")
+    parser.add_argument("--user_input", type=str, default=default_user_input, help="User input/prompt for the analysis. Uses a default prompt if not provided in 'analyze' or 'all' mode.")
+    parser.add_argument("--max_workers", type=int, default=5, help="Max workers for concurrent verification.")
+    
+    args = parser.parse_args()
+
+    firmware_root = find_firmware_root(args.search_dir)
+    if not firmware_root:
+        print(f"Error: Could not find a valid firmware root in '{args.search_dir}'.")
+        sys.exit(1)
+    
+    print(f"Found firmware root at: {firmware_root}")
+
+    output_dir = args.output
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    print(f"Output will be saved to: {output_dir}")
+
+    master_agent = FirmwareMasterAgent(
+        max_levels_for_blueprint=5,
+        firmware_root_path=firmware_root,
+        output_dir=output_dir,
+        user_input=args.user_input,
+    )
+    
+    await master_agent.arun(mode=args.mode, max_workers=args.max_workers)
+
+if __name__ == "__main__":
+    if sys.argv and '--async' in sys.argv:
+        # A simple way to trigger async mode
+        sys.argv.remove('--async')
+        asyncio.run(amain())
+    else:
+        main()

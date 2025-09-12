@@ -1,6 +1,7 @@
 import json
 import os
 import fcntl
+import asyncio
 from typing import Dict, List, Any, Optional, Type, Union
 
 from agenthive.base import BaseAgent
@@ -97,6 +98,10 @@ class KnowledgeBaseMixin:
             except (ValueError, OSError):
                 pass
 
+    async def _aload_kb_data(self, lock_file) -> List[Dict[str, Any]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._load_kb_data, lock_file)
+
 class StoreFindingsTool(ExecutableTool, KnowledgeBaseMixin):
     name: str = "StoreStructuredFindings"
     description: str = "Stores structured firmware analysis findings into the knowledge base in append mode. Each finding must include detailed path and condition constraints to ensure traceability and verifiability."
@@ -180,6 +185,10 @@ class StoreFindingsTool(ExecutableTool, KnowledgeBaseMixin):
             print(f"{error_message} (Details: {e})")
             return {"status": "error", "message": error_message}
 
+    async def aexecute(self, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.execute, findings)
+
 
 class QueryFindingsTool(ExecutableTool, KnowledgeBaseMixin):
     name: str = "QueryFindings"
@@ -249,6 +258,38 @@ class QueryFindingsTool(ExecutableTool, KnowledgeBaseMixin):
             print(f"[Tool - Query] Error querying findings: {e}")
             return [{"error": f"Error querying findings: {str(e)}", "query_key": query_key, "query_value": query_value}]
 
+    async def aexecute(self, query_key: str, query_value: Any) -> List[Dict[str, Any]]:
+        if not isinstance(query_key, str) or not query_key:
+            return [{"error": "Query key 'query_key' must be a non-empty string."}]
+
+        results = []
+        try:
+            if not os.path.exists(self.kb_file_path):
+                 return [{"message": f"Knowledge base file '{self.kb_file_path}' does not exist, there may be no findings yet.", "query_key": query_key, "query_value": query_value}]
+
+            with open(self.kb_file_path, 'rb') as f:
+                all_findings = await self._aload_kb_data(f)
+
+            if not all_findings:
+                return [{"message": "Knowledge base is empty or malformed.", "query_key": query_key, "query_value": query_value}]
+
+            for finding_item in all_findings:
+                if self._check_match(finding_item, query_key, query_value):
+                    results.append(finding_item.copy())
+
+            query_value_str = str(query_value)
+            if len(query_value_str) > 100: query_value_str = query_value_str[:100] + "..."
+
+            print(f"[Tool - Query] Found {len(results)} matching findings for key '{query_key}' and value '{query_value_str}'.")
+            if not results:
+                return [{"message": f"No findings matched the query key '{query_key}' and value '{query_value_str}'."}]
+            return results
+        except FileNotFoundError:
+             return [{"message": "Knowledge base file not found, there may be no findings yet.", "query_key": query_key, "query_value": query_value}]
+        except Exception as e:
+            print(f"[Tool - Query] Error querying findings: {e}")
+            return [{"error": f"Error querying findings: {str(e)}", "query_key": query_key, "query_value": query_value}]
+
 
 class ListUniqueValuesTool(ExecutableTool, KnowledgeBaseMixin):
     name: str = "ListUniqueValues"
@@ -288,6 +329,53 @@ class ListUniqueValuesTool(ExecutableTool, KnowledgeBaseMixin):
 
             with open(self.kb_file_path, 'rb') as f:
                 all_findings = self._load_kb_data(f)
+
+            if not all_findings:
+                return {"status": "info", "message": f"Knowledge base '{self.kb_file_path}' is empty or malformed.", "target_key": target_key, "unique_values": []}
+
+            for finding_item in all_findings:
+                if not isinstance(finding_item, dict):
+                    continue
+
+                if target_key in finding_item:
+                    value_to_add = finding_item[target_key]
+                    if isinstance(value_to_add, list):
+                        for item in value_to_add:
+                            if isinstance(item, (str, int, float, bool)):
+                                unique_values.add(item)
+                    elif isinstance(value_to_add, (str, int, float, bool)):
+                        unique_values.add(value_to_add)
+
+            try:
+                sorted_unique_values = sorted(list(unique_values), key=lambda x: str(x))
+            except TypeError:
+                 sorted_unique_values = list(unique_values)
+
+            return {
+                "status": "success",
+                "message": f"Successfully retrieved all unique values for the field '{target_key}'.",
+                "target_key": target_key,
+                "unique_values": sorted_unique_values
+            }
+
+        except FileNotFoundError:
+            return {"status": "info", "message": "Knowledge base not found.", "target_key": target_key, "unique_values": []}
+        except Exception as e:
+            error_message = f"Error getting unique values for key '{target_key}': {str(e)}"
+            print(f"[Tool - ListUnique] {error_message}")
+            return {"status": "error", "message": error_message, "target_key": target_key, "unique_values": []}
+
+    async def aexecute(self, target_key: str) -> Dict[str, Any]:
+        if not target_key or not isinstance(target_key, str):
+            return {"status": "error", "message": "Error: 'target_key' must be a valid string."}
+
+        unique_values = set()
+        try:
+            if not os.path.exists(self.kb_file_path):
+                return {"status": "info", "message": "Knowledge base file not found, it might not have been initialized.", "unique_values": []}
+
+            with open(self.kb_file_path, 'rb') as f:
+                all_findings = await self._aload_kb_data(f)
 
             if not all_findings:
                 return {"status": "info", "message": f"Knowledge base '{self.kb_file_path}' is empty or malformed.", "target_key": target_key, "unique_values": []}
@@ -406,3 +494,6 @@ class KnowledgeBaseAgent(BaseAgent):
             history_strategy=history_strategy,
             **extra_params
         )
+
+    async def arun(self, user_input: str = None) -> Any:
+        return await super().arun(user_input=user_input)

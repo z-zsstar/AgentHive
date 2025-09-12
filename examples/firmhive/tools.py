@@ -2,6 +2,7 @@ import os
 import json
 import shlex
 import r2pipe
+import asyncio
 import requests
 import traceback
 import subprocess
@@ -54,6 +55,43 @@ class DockerTool:
         except Exception as e:
             return f"[Error] Command '{command[:100]}...' failed to execute in container: {e}"
 
+    async def aexecute_in_container(self, command: str) -> str:
+        if not self.container_id:
+            return "[Error] Docker container not found. The container_id is missing from the context."
+
+        base_path = self.context.get("base_path")
+        current_dir = self.context.get("current_dir")
+        if not base_path or not current_dir:
+            return "[Error] base_path or current_dir not in context."
+
+        if not os.path.normpath(current_dir).startswith(os.path.normpath(base_path)):
+             return f"[Security Error] The current working directory '{current_dir}' is not within the firmware root directory '{base_path}'."
+
+        relative_dir = os.path.relpath(current_dir, base_path)
+        container_dir = os.path.join("/firmware", relative_dir)
+
+        docker_command_list = ["docker", "exec", "-w", container_dir, self.container_id] + shlex.split(command)
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *docker_command_list,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
+            
+            output = f"Exit Code: {proc.returncode}\n"
+            if stdout:
+                output += f"Stdout:\n{stdout.decode('utf-8', errors='ignore')}\n"
+            if stderr:
+                output += f"Stderr:\n{stderr.decode('utf-8', errors='ignore')}\n"
+            return output
+        except asyncio.TimeoutError:
+            return f"[Error] Command '{command[:100]}...' timed out after {self.timeout}s in container."
+        except Exception as e:
+            return f"[Error] Command '{command[:100]}...' failed to execute in container: {e}"
+
 
 class GetContextInfoTool(ExecutableTool):
     name = "get_context_info"
@@ -78,6 +116,9 @@ class GetContextInfoTool(ExecutableTool):
             f"- Directory: {dir_name_str}\n"
             f"- Directory path relative to firmware root: {rel_dir_path}"
         )  
+
+    async def aexecute(self) -> str:
+        return self.execute()
 
 class ShellExecutorTool(ExecutableTool, DockerTool):
     name = "execute_shell"
@@ -186,6 +227,9 @@ class ShellExecutorTool(ExecutableTool, DockerTool):
     def execute(self, command: str) -> str:
         return self.execute_shell(command=command)
     
+    async def aexecute(self, command: str) -> str:
+        return await self.aexecute_shell(command=command)
+
     def execute_shell(self, command: str) -> str:
         try:
             if not command or not command.strip():
@@ -197,6 +241,20 @@ class ShellExecutorTool(ExecutableTool, DockerTool):
                 return f"[Error] {error_msg}"
             
             return self.execute_in_container(command)
+            
+        except Exception as e: 
+            return f"[Error] Command '{command[:100]}...' failed to execute: {e}"
+
+    async def aexecute_shell(self, command: str) -> str:
+        try:
+            if not command or not command.strip():
+                return "[Error] Command cannot be empty."
+            
+            is_safe, error_msg = self._is_safe_command(command)
+            if not is_safe:
+                return f"[Error] {error_msg}"
+            
+            return await self.aexecute_in_container(command)
             
         except Exception as e: 
             return f"[Error] Command '{command[:100]}...' failed to execute: {e}"
@@ -282,6 +340,26 @@ class Radare2Tool(ExecutableTool, DockerTool):
         print(f"Executing r2 command: {command}")
         try:
             result = self.r2.cmd(command)
+            return result.strip() if result else f"[No output from {command} command]"
+        except Exception as e:
+            print(f"Error executing Radare2 command '{command}': {e}. Resetting pipe.")
+            return f"[Error] Failed to execute command '{command}': {e}. Radare2 pipe might be unstable."
+
+    async def aexecute(self, command: str) -> str:
+        if not self.r2:
+            print("Radare2 session not ready, attempting initialization...")
+            loop = asyncio.get_running_loop()
+            initialized = await loop.run_in_executor(None, self._initialize_r2)
+            if not initialized:
+                return "[Error] Radare2 session failed to initialize. Check file path and container status."
+
+        if not command:
+            return "[Error] No command provided to Radare2."
+
+        print(f"Executing r2 command: {command}")
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self.r2.cmd, command)
             return result.strip() if result else f"[No output from {command} command]"
         except Exception as e:
             print(f"Error executing Radare2 command '{command}': {e}. Resetting pipe.")
@@ -397,6 +475,30 @@ class Radare2FileTargetTool(ExecutableTool, DockerTool):
         print(f"Executing r2 command: '{command}' on file '{file_name}'")
         try:
             result = self.r2.cmd(command)
+            return result.strip() if result is not None else f"[No output from '{command}' command]"
+        except Exception as e:
+            print(f"Error executing Radare2 command '{command}' on '{file_name}': {e}. Resetting pipe for this file.")
+            self.close()
+            return f"[Error] Failed to execute command '{command}' on '{file_name}': {e}. Pipe has been reset."
+
+    async def aexecute(self, file_name: str, command: str) -> str:
+        if not file_name:
+            return "[Error] No file_name provided."
+
+        loop = asyncio.get_running_loop()
+        initialized = await loop.run_in_executor(None, self._initialize_r2_for_file, file_name)
+        if not initialized:
+            return f"[Error] Radare2 session failed to initialize for {file_name}. Ensure the file exists in the container and Radare2 is correctly configured."
+
+        if not self.r2:
+            return f"[Error] Radare2 session is not available for {file_name} even after initialization attempt."
+
+        if not command:
+            return "[Error] No command provided to Radare2."
+
+        print(f"Executing r2 command: '{command}' on file '{file_name}'")
+        try:
+            result = await loop.run_in_executor(None, self.r2.cmd, command)
             return result.strip() if result is not None else f"[No output from '{command}' command]"
         except Exception as e:
             print(f"Error executing Radare2 command '{command}' on '{file_name}': {e}. Resetting pipe for this file.")
@@ -521,6 +623,10 @@ class VulnerabilitySearchTool(ExecutableTool):
         except Exception as e:
             traceback.print_exc()
             return f"[Error] An internal error occurred while processing NVD API results: {e}"
+
+    async def aexecute(self, keyword_search: str, max_results: int = 10, **kwargs) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.execute, keyword_search, max_results, **kwargs)
 
     def _get_english_description(self, descriptions: List[Dict[str, str]]) -> str:
         for desc_item in descriptions:
