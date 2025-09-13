@@ -93,9 +93,9 @@ class BaseAssistant(ExecutableTool):
         **kwargs 包含从 execute 方法传入的所有参数。
         子类可以重写此方法以从 kwargs 中选择需要的参数构建提示。
         """
-        # 默认实现从 task 参数中获取 task
-        task_list = kwargs.get("task_list", {})
-        task = task_list.get("task") if isinstance(task_list, dict) else None
+        # 修正：直接从kwargs中获取名为'task'的参数
+        task_dict = kwargs.get("task", {})
+        task = task_dict.get("task") if isinstance(task_dict, dict) else None
 
         usr_init_msg_content = self.context.get("user_input") if self.context.get("user_input") else "未提供用户初始请求"
         task_content = task if task else "未提供任务描述" # 确保非空

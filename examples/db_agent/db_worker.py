@@ -1,24 +1,23 @@
-import redis
-import json
-import psycopg2
-import torch # 导入 torch
-from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
 import re
 import os
+import json
+import torch
+import redis
+import psycopg2
 
-# --- 配置 ---
+from pgvector.psycopg2 import register_vector
+from sentence_transformers import SentenceTransformer
+
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 DB_NAME = os.getenv("DB_NAME", "postgres")
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "0514")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 MODEL_NAME = "BAAI/bge-base-en-v1.5"
 QUEUE_NAME = "sql_tasks"
 
-# --- 全局资源初始化 ---
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[*] Worker: 正在加载嵌入模型 (使用设备: {device})...")
 embedding_model = SentenceTransformer(MODEL_NAME, device=device)
@@ -39,7 +38,7 @@ def execute_sql_task(task_data):
     """
     queries = task_data.get("queries", [])
     if not queries:
-        return "[错误] 任务中未发现任何查询。"
+        return "[错误] 任务中未发现任何。"
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -60,11 +59,34 @@ def execute_sql_task(task_data):
             
             cur.execute(query, params)
             
-            # 记录受影响的行数，即便是SELECT也记录，虽然通常为-1
-            results_log.append(f"  - 查询 '{query[:80]}...' 影响了 {cur.rowcount} 行。")
+            if cur.description:
+                columns = [desc[0] for desc in cur.description]
+                results = cur.fetchall()
+                
+                MAX_ROWS_TO_RETURN = 10000
+                is_truncated = False
+                if len(results) > MAX_ROWS_TO_RETURN:
+                    results = results[:MAX_ROWS_TO_RETURN]
+                    is_truncated = True
+
+                if results:
+                    header = "| " + " | ".join(columns) + " |"
+                    separator = "| " + " | ".join(["---"] * len(columns)) + " |"
+                    body = "\n".join(["| " + " | ".join(map(str, row)) + " |" for row in results])
+                    
+                    table = f"'{query}...' 的结果:\n{header}\n{separator}\n{body}"
+                    
+                    if is_truncated:
+                        table += f"\n\n[警告] 返回结果集超过 {MAX_ROWS_TO_RETURN} 行，已截断。请使用更精确的（如添加 WHERE 或 LIMIT 子句）。"
+
+                    results_log.append(table)
+                else:
+                    results_log.append(f" '{query[:80]}...' 成功执行，但未返回任何行。")
+            else:
+                results_log.append(f"操作 '{query[:80]}...' 成功执行, {cur.rowcount} 行受到影响。")
 
         cur.execute("COMMIT;")
-        return f"事务成功提交。\n" + "\n".join(results_log)
+        return "事务成功提交。\n\n" + "\n\n".join(results_log)
 
     except Exception as e:
         cur.execute("ROLLBACK;")
@@ -82,8 +104,6 @@ def main():
 
     while True:
         try:
-            # blpop 是一个阻塞式操作，它会一直等待直到队列中有新任务
-            # 0 表示永不超时
             _, task_json = r.blpop(QUEUE_NAME, 0)
             
             print("\n" + "="*50)
@@ -104,14 +124,13 @@ def main():
                 if task_id:
                     result_key = f"sql_result:{task_id}"
                     r.rpush(result_key, result)
-                    r.expire(result_key, 60) # 设置60秒后自动过期，防止孤儿key
+                    r.expire(result_key, 60)
                     print(f"  - 结果已发送至: {result_key}")
 
             except json.JSONDecodeError:
                 print("[!] Worker: 任务解析失败，非法的JSON格式。")
             except Exception as e:
                 print(f"[!] Worker: 处理任务时发生未知错误: {e}")
-                # 即使处理失败，也要通知客户端，防止其永久阻塞
                 task_id = task_data.get("task_id")
                 if task_id:
                     result_key = f"sql_result:{task_id}"
@@ -121,7 +140,6 @@ def main():
 
         except redis.exceptions.ConnectionError as e:
             print(f"[!] Worker: Redis 连接丢失: {e}。正在尝试重连...")
-            # 可以添加重连逻辑
             break
         except KeyboardInterrupt:
             print("\n[*] Worker: 检测到中断信号，正在关闭...")

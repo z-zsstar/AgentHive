@@ -184,7 +184,7 @@ class BaseAgent(JSONOutputLLM):
         tools: Optional[List[Union[Type[ExecutableTool], ExecutableTool]]] = None,
         system_prompt: str = "You are a helpful AI assistant.",
         output_schema: Optional[Dict[str, Any]] = None,
-        max_iterations: int = 15,
+        max_iterations: int = 25,
         history_strategy: Optional[HistoryStrategy] = None,
         messages_filters: Optional[List[Dict[str, str]]] = None,
         context: Optional[FlexibleContext] = None,
