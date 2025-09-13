@@ -109,7 +109,7 @@ graph TD
     ```bash
     run 请撰写一篇关于“大型语言模型（LLM）多智能体协作”的深度学术论文。
     ```
-    智能体团队将开始工作，最终报告将保存在 `research/output/final_report.md`。
+    智能体团队将开始工作，最终报告将保存在 `output/final_report.md`。
 
 ## 📂 成果示例
 

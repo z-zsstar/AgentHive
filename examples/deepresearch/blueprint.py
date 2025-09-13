@@ -144,7 +144,7 @@ class DeepResearchManager:
     编排整个深度研究流程。
     它构建一个由 SelfReviewingAgent 组成的多层级、并行体系。
     """
-    def __init__(self, context: Optional[FlexibleContext] = None, max_iterations: int = 50, output: str = "research/output", depth: int = 3):
+    def __init__(self, context: Optional[FlexibleContext] = None, max_iterations: int = 50, output: str = "output", depth: int = 3):
         self.context = context if context is not None else FlexibleContext()
         self.max_iterations = max_iterations
         self.output = output

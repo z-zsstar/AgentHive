@@ -109,7 +109,7 @@ The magic comes from a few simple, core components:
     ```bash
     run Please write a deep academic paper on "Multi-Agent Collaboration of Large Language Models (LLMs)".
     ```
-    The agent team will begin working, and you can see the final report in `research/output/final_report.md`.
+    The agent team will begin working, and you can see the final report in `output/final_report.md`.
 
 ## 📂 Examples Showcase
 
