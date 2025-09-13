@@ -106,8 +106,8 @@ class AddItemTool(ExecutableTool):
 
     def execute(
         self,
-        parent_path: str,
         item_type: str,
+        parent_path: Optional[str] = None,
         text: Optional[str] = None,
         image_url: Optional[str] = None,
         insert_after_id: Optional[str] = None,
@@ -118,6 +118,9 @@ class AddItemTool(ExecutableTool):
             report_tree: Optional[ReportNode] = self.context.get("report_tree")
             ref_manager: Optional[ReferenceManager] = self.context.get("reference_manager")
             workspace_path: str = self.context.get("workspace_node_path", "")
+
+            if parent_path is None:
+                parent_path = workspace_path
 
             if not all([isinstance(report_tree, ReportNode), isinstance(ref_manager, ReferenceManager)]):
                 return "错误：上下文中未找到 report_tree 或 reference_manager。"
