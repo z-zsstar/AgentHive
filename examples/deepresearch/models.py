@@ -240,6 +240,37 @@ class ReportNode:
         """将节点的字典表示格式化为JSON字符串。"""
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
     
+    def to_tree_str(self) -> str:
+        """生成并返回表示节点结构的树形字符串。"""
+        
+        def get_node_title(node: "ReportNode") -> str:
+            """尝试从节点的第一个内容块中提取标题。"""
+            if node.content_items and isinstance(node.content_items[0], ContentBlock):
+                text = node.content_items[0].text.strip()
+                match = re.match(r'^(#+)\s*(.*)', text)
+                if match:
+                    return match.group(2)
+            return "Untitled Chapter"
+
+        def build_tree(node: "ReportNode", prefix: str = "", is_last: bool = True) -> str:
+            tree_str = ""
+            connector = "└── " if is_last else "├── "
+            
+            path_str = f" (Path: {node.path})" if node.path else " (Root)"
+            title = get_node_title(node)
+            tree_str += f"{prefix}{connector}{title}{path_str}\n"
+            
+            children_prefix = prefix + ("    " if is_last else "│   ")
+            child_nodes = [item for item in node.content_items if isinstance(item, ReportNode)]
+            
+            for i, child in enumerate(child_nodes):
+                is_last_child = (i == len(child_nodes) - 1)
+                tree_str += build_tree(child, children_prefix, is_last_child)
+                
+            return tree_str
+
+        return build_tree(self.get_root())
+
     def search_content(self, query: str) -> List[Dict[str, Any]]:
         """在子树中所有ContentBlock的文本中搜索指定字符串。"""
         results = []

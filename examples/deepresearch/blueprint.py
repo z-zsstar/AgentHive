@@ -196,8 +196,10 @@ class DeepResearchManager:
         self.context.set("user_input", user_input)
         self.context.set("output", self.output)
         os.makedirs(self.output, exist_ok=True)
-        self.context.set("report_tree", ReportNode(), shallow_copy=True)
-        self.context.set("reference_manager", ReferenceManager(), shallow_copy=True)
+        if self.context.get("report_tree") is None:
+            self.context.set("report_tree", ReportNode(), shallow_copy=True)
+        if self.context.get("reference_manager") is None:
+            self.context.set("reference_manager", ReferenceManager(), shallow_copy=True)
         self.context.set("workspace_node_path", "")
         
         try:
@@ -240,8 +242,10 @@ class DeepResearchManager:
         self.context.set("user_input", user_input)
         self.context.set("output", self.output)
         os.makedirs(self.output, exist_ok=True)
-        self.context.set("report_tree", ReportNode(), shallow_copy=True)
-        self.context.set("reference_manager", ReferenceManager(), shallow_copy=True)
+        if self.context.get("report_tree") is None:
+            self.context.set("report_tree", ReportNode(), shallow_copy=True)
+        if self.context.get("reference_manager") is None:
+            self.context.set("reference_manager", ReferenceManager(), shallow_copy=True)
         self.context.set("workspace_node_path", "")
         
         try:
