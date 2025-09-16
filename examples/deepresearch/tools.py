@@ -1,12 +1,12 @@
+import re
 import copy
 import json
-import re
-from typing import Optional, Union
 import traceback
+from typing import Optional, Union
 
-from agenthive.tools.basetool import ExecutableTool
-from deepresearch.models import ReportNode, ContentBlock, ReferenceManager
 from websearch.blueprint import WebSearchManager
+from agenthive.tools.basetool import ExecutableTool
+from models import ReportNode, ContentBlock, ReferenceManager
 
 
 class WebSearchToolWrapper(ExecutableTool):
@@ -62,7 +62,7 @@ class AddItemTool(ExecutableTool):
         "properties": {
             "parent_path": {
                 "type": "string",
-                "description": "新项目要添加到的父章节的数字路径 (例如 '1', '2-1')。"
+                "description": "新项目要添加到的父章节的数字路径 (例如 '1', '2-1')。使用 '.' 来引用报告根目录。"
             },
             "item_type": {
                 "type": "string",
@@ -95,7 +95,7 @@ class AddItemTool(ExecutableTool):
     @property
     def parameters(self) -> dict:
         workspace_path = self.context.get("workspace_node_path", "")
-        path_str = f"'{workspace_path}'" if workspace_path else "根目录 ('')"
+        path_str = f"'{workspace_path}'" if workspace_path else "根目录 ('.')"
         
         params = copy.deepcopy(self._parameters_template)
         params["properties"]["parent_path"]["description"] = (
@@ -252,7 +252,7 @@ class GetNodeContentTool(ExecutableTool):
         "properties": {
             "node_path": {
                 "type": "string",
-                "description": "要查看的目标章节的数字路径。"
+                "description": "要查看的目标章节的数字路径 (例如 '1, '2-1')。使用 '.' 来查看整个报告。"
             },
             "format": {
                 "type": "string",

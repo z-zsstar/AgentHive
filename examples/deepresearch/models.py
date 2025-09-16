@@ -125,7 +125,7 @@ class ReportNode:
 
     def get_node_by_path(self, path: str) -> Optional[ReportNode]:
         """根据完整数字路径查找节点，从根节点开始。"""
-        if not path:
+        if not path or path == '.':
             return self.get_root()
         current_node = self.get_root()
         for part in path.split('-'):

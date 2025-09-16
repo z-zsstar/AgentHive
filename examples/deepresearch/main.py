@@ -7,8 +7,8 @@ from typing import Optional
 from rich.console import Console
 from rich.markdown import Markdown
 
-from .blueprint import DeepResearchManager
-from .models import ReportNode, ContentBlock
+from blueprint import DeepResearchManager
+from models import ReportNode, ContentBlock
 
 DEFAULT_TASK = """
 请撰写一篇关于“大型语言模型（LLM）多智能体协作”的深度学术论文。
@@ -83,7 +83,7 @@ async def amain():
 
     # Instantiate the manager with the specified depth and max_iterations
     try:
-        manager = DeepResearchManager(max_iterations=args.max_iterations, depth=args.depth)
+        manager = DeepResearchManager(max_iterations=args.max_iterations)
     except Exception as e:
         print(f"Error creating DeepResearchManager: {e}")
         sys.exit(1)

@@ -210,3 +210,4 @@ __marimo__/
 **/*.jsonl
 
 config.ini
+agenthive-go
