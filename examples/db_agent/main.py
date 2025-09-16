@@ -26,7 +26,7 @@ async def run_dba_task(question: str, embedding_model) -> str:
     DB_PARAMS = {
         "dbname": os.getenv("DB_NAME", "postgres"),
         "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "0514"),
+        "password": os.getenv("DB_PASSWORD", ""),
         "host": os.getenv("DB_HOST", "localhost"),
         "port": os.getenv("DB_PORT", "5432"),
     }

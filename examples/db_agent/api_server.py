@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-from main import run_dba_task
+from .main import run_dba_task
 
 
 app = FastAPI(
