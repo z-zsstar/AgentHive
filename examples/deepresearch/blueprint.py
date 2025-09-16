@@ -67,14 +67,14 @@ class DeepResearchManager:
             agent_class=BaseAgent,
             tool_configs=[AddItemTool, UpdateBlockTextTool, DeleteItemTool, GetNodeContentTool],
             system_prompt=CREATOR_SYSTEM_PROMPT,
-            max_iterations=15,
+            max_iterations=30,
         )
         
         formatting_review_config = AgentConfig(
             agent_class=BaseAgent,
             tool_configs=[UpdateBlockTextTool, GetNodeContentTool],
             system_prompt=REVIEWER_SYSTEM_PROMPT,
-            max_iterations=15,
+            max_iterations=30,
         )
 
         top_level_tools = [

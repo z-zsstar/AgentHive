@@ -26,7 +26,7 @@ async def run_dba_task(question: str, embedding_model) -> str:
     DB_PARAMS = {
         "dbname": os.getenv("DB_NAME", "postgres"),
         "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", ""),
+        "password": os.getenv("DB_PASSWORD", "0514"),
         "host": os.getenv("DB_HOST", "localhost"),
         "port": os.getenv("DB_PORT", "5432"),
     }
@@ -39,13 +39,11 @@ async def run_dba_task(question: str, embedding_model) -> str:
 
     expert_agent_config = create_dba_blueprint(max_iterations=50)
 
-    # 普通的、同步阻塞的助手工具
     assistant_tool_config = AssistantToolConfig(
         assistant_class=DBAExpertAssistant,
         sub_agent_config=expert_agent_config,
     )
 
-    # 支持后台执行的、非阻塞的助手工具
     background_assistant_tool_config = AssistantToolConfig(
         assistant_class=BackgroundTaskDBAExpertAssistant,
         sub_agent_config=expert_agent_config,
@@ -55,7 +53,7 @@ async def run_dba_task(question: str, embedding_model) -> str:
         agent_class=BaseAgent,
         tool_configs=[assistant_tool_config, background_assistant_tool_config],
         system_prompt=DBA_MANAGER_SYSTEM_PROMPT,
-        max_iterations=10 # 增加迭代次数以支持后台任务交互
+        max_iterations=25
     )
 
     manager_agent = build_agent(manager_config, context)

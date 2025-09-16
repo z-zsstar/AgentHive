@@ -372,7 +372,7 @@ class ChapterProducerAssistant(BaseAssistant):
                 agent_class=BaseAgent,
                 tool_configs=[UpdateBlockTextTool, GetNodeContentTool],
                 system_prompt=REVIEWER_SYSTEM_PROMPT,
-                max_iterations=15,
+                max_iterations=30,
             )
             formatting_agent = build_agent(formatting_agent_config, formatting_context)
 
@@ -441,7 +441,7 @@ class ChapterProducerAssistant(BaseAssistant):
                 agent_class=BaseAgent,
                 tool_configs=[UpdateBlockTextTool, GetNodeContentTool],
                 system_prompt=REVIEWER_SYSTEM_PROMPT,
-                max_iterations=15,
+                max_iterations=30,
             )
             formatting_agent = build_agent(formatting_agent_config, formatting_context)
 
@@ -488,16 +488,12 @@ class ParallelChapterProducerAssistant(ParallelBaseAssistant):
     }
 
     def __init__(self, context: FlexibleContext, **kwargs):
-        # 关键：将内部的执行单元定义为 ChapterProducerAssistant
-        # 但我们不能直接实例化它，而是通过构建一个临时的Agent来运行它
-        # 这里我们将通过重写 _execute_single_task_in_thread 来实现
         super().__init__(context=context, **kwargs)
 
     def _extract_task_list(self, **kwargs: Any) -> List[Dict[str, Any]]:
         return kwargs.get("chapters", [])
 
     def _execute_single_task_in_thread(self, task_item: Dict[str, Any], task_index: int, results_list: list):
-        # 这是并行执行的核心。我们为每个任务实例化一个ChapterProducerAssistant并执行它。
         try:
             producer = ChapterProducerAssistant(context=self.context)
             result = producer.execute(**task_item)
@@ -508,10 +504,8 @@ class ParallelChapterProducerAssistant(ParallelBaseAssistant):
             results_list[task_index] = error_message
     
     async def _aexecute_single_task(self, task_item: Dict[str, Any], task_index: int):
-        # 异步版本的实现
         try:
             producer = ChapterProducerAssistant(context=self.context)
-            # ChapterProducerAssistant 现在有了一个合适的 aexecute 方法，我们可以直接调用它。
             result = await producer.aexecute(**task_item)
             return result
         except Exception as e:
