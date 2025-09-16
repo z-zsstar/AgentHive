@@ -6,6 +6,7 @@ import inspect
 import asyncio
 import functools
 import threading
+import uuid
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Callable, Optional, Type, Union
 
@@ -198,6 +199,7 @@ class BaseAgent(JSONOutputLLM):
         self.history_strategy = history_strategy
         if messages_filters is not None:
             self.messages_filters = messages_filters
+        self.background_tasks: Dict[str, asyncio.Task] = {} # 用于跟踪后台任务
 
         self._setup_output_paths(agent_instance_name)
         self.name = agent_instance_name or self.__class__.__name__
@@ -235,7 +237,7 @@ class BaseAgent(JSONOutputLLM):
             "required": ["thought", "action", "action_input", "status"]
         }
         self.output_schema = output_schema or default_output_schema
-        self.final_output_schema = None  # 初始化final_output_schema属性
+        self.final_output_schema = None
         
         super().__init__(self.llm_client, self.system_prompt, output_schema=self.output_schema)
         
@@ -252,7 +254,6 @@ class BaseAgent(JSONOutputLLM):
 
         current_agent_log_dir: str
         if parent_log_dir and isinstance(parent_log_dir, str):
-            # Create a dedicated 'subagents' directory to make the hierarchy clearer.
             subagents_dir = os.path.join(parent_log_dir, "subagents")
             current_agent_log_dir = os.path.join(subagents_dir, f"{sanitized_agent_id}_logs")
         else:
@@ -266,7 +267,7 @@ class BaseAgent(JSONOutputLLM):
         try:
             os.makedirs(current_agent_log_dir, exist_ok=True)
             self.messages_log_path = os.path.join(current_agent_log_dir, 'message.jsonl')
-            # print(f"BaseAgent '{log_identifier}' initialized. Messages will be saved to: {self.messages_log_path}")
+            print(f"BaseAgent '{log_identifier}' initialized. Messages will be saved to: {self.messages_log_path}")
         except OSError as e:
             print(f"[BaseAgent Setup] Warning: Could not create/access agent log directory '{current_agent_log_dir}'. Error: {e}. Message logging will be disabled.")
             self.messages_log_path = None
@@ -327,7 +328,7 @@ class BaseAgent(JSONOutputLLM):
             except Exception as e:
                 print(f"Error: Processing tool '{tool_name}' failed: {e}")
 
-        # print(f"{self.__class__.__name__} tools: {[t.name for t in final_tools_list]}")
+        print(f"{self.__class__.__name__} tools: {[t.name for t in final_tools_list]}")
         return final_tools_list
 
     def _get_response_format_prompt(self) -> str:
@@ -370,7 +371,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
 
     def _prepare_llm_request_messages(self) -> List[Message]:
         if not self.messages or self.messages[0].role != 'system':
-            # print("Error: Message history is empty or the first message is not a system message!")
+            print("Error: Message history is empty or the first message is not a system message!")
             return self.messages[:]
 
         system_message = self.messages[0]
@@ -395,7 +396,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             return error_msg
 
         tool = self.tools[tool_name]
-        # print(f"Executing tool: {tool_name} with input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+        print(f"Executing tool: {tool_name} with input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
         result_queue = queue.Queue()
 
         def execute_in_thread():
@@ -404,7 +405,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                 result = tool.execute(**safe_input_for_exec)
                 result_queue.put(("success", result))
             except Exception as e:
-                # print(f"Exception in tool '{tool_name}' execution thread: {e}")
+                print(f"Exception in tool '{tool_name}' execution thread: {e}")
                 result_queue.put(("error", e))
 
         thread = threading.Thread(target=execute_in_thread, daemon=True, name=f"ToolThread-{tool_name}")
@@ -433,20 +434,20 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                     formatted_result = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n {result_str}"
                     return formatted_result
                 except Exception as e:
-                     # print(f"Warning: Tool '{tool_name}' result cannot be safely converted to string or formatted: {e}")
+                     print(f"Warning: Tool '{tool_name}' result cannot be safely converted to string or formatted: {e}")
                      raw_output = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <Undisplayable complex object, conversion/formatting error: {str(e)}>"
                      return raw_output
             else:
                 error_obj = result 
-                # print(f"Tool '{tool_name}' execution failed. Input: {tool_input_str_for_log}. Error: {type(error_obj).__name__}: {str(error_obj)}")
+                print(f"Tool '{tool_name}' execution failed. Input: {tool_input_str_for_log}. Error: {type(error_obj).__name__}: {str(error_obj)}")
                 error_raw_output = f"Tool: {tool_name}\nParameters: {tool_input_str_for_log}\nResult:\n <Execution failed, error: {type(error_obj).__name__}: {str(error_obj)}>"
                 return error_raw_output
         except queue.Empty:
-            # print(f"Tool '{tool_name}' execution timed out (exceeded {timeout_seconds} seconds). Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+            print(f"Tool '{tool_name}' execution timed out (exceeded {timeout_seconds} seconds). Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
             timeout_raw_output = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Execution timed out, exceeded {timeout_seconds} seconds>"
             return timeout_raw_output
         except Exception as e:
-             # print(f"Unexpected queue or processing error during tool '{tool_name}' execution: {e}. Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
+             print(f"Unexpected queue or processing error during tool '{tool_name}' execution: {e}. Input: {json.dumps(tool_input, ensure_ascii=False, default=str)}")
              error_queue_raw_output = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Unexpected error during execution: {str(e)}>"
              return error_queue_raw_output
 
@@ -462,25 +463,20 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
         tool = self.tools[tool_name]
         loop = asyncio.get_running_loop()
         
-        default_timeout = 300
+        default_timeout = 600
         timeout_seconds = tool.timeout if hasattr(tool, 'timeout') and tool.timeout is not None else default_timeout
 
         try:
-            # Ensure tool_input keys are strings for safe execution
             safe_input_for_exec = {str(k): v for k, v in tool_input.items()}
             
-            # 优先使用工具自带的异步执行方法
             if hasattr(tool, 'aexecute') and callable(getattr(tool, 'aexecute')):
-                # 直接在当前事件循环中运行异步方法
-                # This avoids issues with pickling when using asyncio.gather with assistants
                 result = await asyncio.wait_for(
                     tool.aexecute(**safe_input_for_exec), 
                     timeout=timeout_seconds
                 )
             else:
-                # 如果工具没有异步方法，则在线程池中运行同步方法
                 future = loop.run_in_executor(
-                    None,  # Use the default executor
+                    None,
                     functools.partial(tool.execute, **safe_input_for_exec)
                 )
                 result = await asyncio.wait_for(future, timeout=timeout_seconds)
@@ -503,7 +499,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             return error_msg
         except Exception as e:
             error_msg = f"Tool: {tool_name}\nParameters: {json.dumps(tool_input, ensure_ascii=False, default=str)}\nResult:\n <Execution failed, error: {type(e).__name__}: {str(e)}>"
-            # print(f"Exception in async tool '{tool_name}' execution: {e}")
+            print(f"Exception in async tool '{tool_name}' execution: {e}")
             return error_msg
 
     def _auto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
@@ -516,7 +512,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                 continue
             
             tool_result = self._execute_tool(tool_name, tool_input)
-            # print(f"Tool execution result:\n{tool_result}")
+            print(f"Tool execution result:\n{tool_result}")
             self.add_message('user', tool_result, type='tool_result')
 
     async def _aauto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
@@ -537,17 +533,17 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
 
         for result in tool_results:
             if isinstance(result, Exception):
-                # print(f"An exception occurred during concurrent tool execution: {result}")
+                print(f"An exception occurred during concurrent tool execution: {result}")
                 self.add_message('user', f"Tool execution failed with error: {result}", type='tool_result_error')
             else:
-                # print(f"Tool execution result:\n{result}")
+                print(f"Tool execution result:\n{result}")
                 self.add_message('user', result, type='tool_result')
 
     def run(self, user_input: str = None, auto_tools: Optional[List[Dict[str, Any]]] = None) -> Any:
         if user_input:
             self.add_message('user', user_input)
-            # print(f"User input:\n {user_input}")
-            # print(f"Current context:\n {self.context}")
+            print(f"User input:\n {user_input}")
+            print(f"Current context:\n {self.context}")
         
         if auto_tools:
             self._auto_execute_tools(auto_tools)
@@ -655,16 +651,37 @@ Retry generating the response.
     async def arun(self, user_input: str = None, auto_tools: Optional[List[Dict[str, Any]]] = None) -> Any:
         if user_input:
             self.add_message('user', user_input)
-            # print(f"User input:\n {user_input}")
-            # print(f"Current context:\n {self.context}")
+            print(f"User input:\n {user_input}")
+            print(f"Current context:\n {self.context}")
 
         if auto_tools:
             await self._aauto_execute_tools(auto_tools)
 
         final_answer = None
-        for i in range(self.max_iterations):
-            print(f"\n----- [Async Iteration {i + 1}/{self.max_iterations}] -----")
+        is_waiting_for_tasks = False
+        
+        iteration_count = 0
+        while iteration_count < self.max_iterations:
+            if not is_waiting_for_tasks:
+                iteration_count += 1
+            
+            print(f"\n----- [Async Iteration {iteration_count}/{self.max_iterations}] -----")
 
+            injected_a_result = await self._check_and_inject_background_tasks()
+
+            if is_waiting_for_tasks and injected_a_result:
+                print("A background task completed. Resuming LLM interaction.")
+                is_waiting_for_tasks = False
+
+            if is_waiting_for_tasks:
+                if self.background_tasks:
+                    print(f"Waiting for {len(self.background_tasks)} background task(s) to complete...")
+                    await asyncio.sleep(0.5)
+                    continue
+                else:
+                    print("All background tasks are complete. Resuming LLM interaction for final summary.")
+                    is_waiting_for_tasks = False
+            
             prompt_messages = self._prepare_llm_request_messages()
 
             max_parse_retries = 3
@@ -676,7 +693,7 @@ Retry generating the response.
                     output_dir = self.context.get("output")
                     response_obj = await self.get_llm_response_async(prompt_messages, output_dir=output_dir)
                     raw_response = response_obj['content']
-                    print(f"LLM Raw Response (Async Iteration {i+1}, Attempt {retry_count+1}):\n{raw_response}")
+                    print(f"LLM Raw Response (Async Iteration {iteration_count+1}, Attempt {retry_count+1}):\n{raw_response}")
                     
                     if retry_count == 0:  
                         self.add_message('assistant', raw_response)    
@@ -730,6 +747,12 @@ Retry generating the response.
             status = parsed_response.get("status")  
 
             if status == "complete" or (action == "finish" and status != "continue"):
+                if self.background_tasks:
+                    print("Agent wants to finish, but background tasks are running. Entering waiting mode.")
+                    is_waiting_for_tasks = True
+                    self.add_message('user', "System Note: Your request to finish is acknowledged. The system will now wait for all background tasks to complete before generating the final summary.", type='system_note')
+                    continue
+                
                 if isinstance(action_input, dict) and "final_response" in action_input:
                     final_answer = action_input["final_response"]
                 else:
@@ -742,24 +765,65 @@ Retry generating the response.
                      print(tool_result)
                      self.add_message('user', tool_result, type='tool_result_error')
                 else:
-                    tool_result = await self._execute_tool_async(action, action_input)
-                    print(f"Tool execution result:\n{tool_result}")
-                    self.add_message('user', tool_result, type='tool_result')
+                    tool_to_run = self.tools.get(action)
+                    if tool_to_run and getattr(tool_to_run, 'is_background_task', False):
+                        task_id = f"{action}_{uuid.uuid4().hex[:6]}"
+                        print(f"检测到后台任务工具: '{action}'。正在启动，任务ID: {task_id}...")
+                        
+                        new_task = asyncio.create_task(self._execute_tool_async(action, action_input))
+                        self.background_tasks[task_id] = new_task
+                        
+                        tool_started_message = f"后台任务已启动。任务名称: '{action}', 任务ID: '{task_id}'. 你可以继续执行其他操作，稍后会自动收到结果。"
+                        print(tool_started_message)
+                        self.add_message('user', tool_started_message, type='tool_result')
+                        continue
+
+                    else:
+                        tool_result = await self._execute_tool_async(action, action_input)
+                        print(f"Tool execution result:\n{tool_result}")
+                        self.add_message('user', tool_result, type='tool_result')
 
             else: 
                  print("Warning: LLM response format inconsistency or status mismatch with action")
                  status_mismatch = f"Error: Your response is inconsistent. If action is '{action}', status should be 'complete' if action is 'finish' else 'continue', but received '{status}'."
                  self.add_message('user', status_mismatch, type='error')
                  continue 
-
-        else: 
+        
+        else:
             print(f"Max iterations reached ({self.max_iterations})")
             final_answer = "Max iterations reached but no answer found."
             if self.messages and self.messages[-1].role == 'assistant':
                 final_answer = self.messages[-1].content
-
+        
         print(f"{self.__class__.__name__} finished")
         return final_answer if final_answer is not None else "Sorry, I was unable to complete the request."
+
+    async def _check_and_inject_background_tasks(self) -> bool:
+        """
+        检查后台任务的状态，将任何已完成的任务结果注入到消息历史中。
+        返回: True 如果有至少一个任务结果被注入，否则 False。
+        """
+        completed_tasks = {}
+        injected_a_result = False
+        for task_id, task in self.background_tasks.items():
+            if task.done():
+                try:
+                    result = await task
+                    tool_result_message = f"后台任务 '{task_id}' 已完成。\n结果:\n{result}"
+                    print(f"--- Injected Background Task Result ---\n{tool_result_message}\n---------------------------------------")
+                    self.add_message('user', tool_result_message, type='background_tool_result')
+                except Exception as e:
+                    error_message = f"后台任务 '{task_id}' 执行失败。\n错误: {type(e).__name__}: {e}"
+                    print(f"--- Injected Background Task Error ---\n{error_message}\n--------------------------------------")
+                    self.add_message('user', error_message, type='background_tool_error')
+                
+                completed_tasks[task_id] = task
+                injected_a_result = True
+
+        for task_id in completed_tasks:
+            del self.background_tasks[task_id]
+        
+        return injected_a_result
 
     def stream(self, user_input: str = None) -> List[Dict[str, Any]]:
         print(f"System prompt:\n {self.messages[0].content}")

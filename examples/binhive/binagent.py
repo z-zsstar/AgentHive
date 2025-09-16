@@ -5,9 +5,9 @@ from agenthive.base import BaseAgent
 from agenthive.core.builder import AgentConfig, AssistantToolConfig
 from agenthive.tools.basetool import FlexibleContext, ExecutableTool
 
-from binhive.tools import Radare2Tool
-from binhive.assistants import ParallelFunctionDelegator,ParallelTaskDelegator
-from binhive.recorder import RecorderAgent,StoreFindingsTool,DEFAULT_KB_SYSTEM_PROMPT
+from tools import Radare2Tool
+from assistants import ParallelFunctionDelegator,ParallelTaskDelegator
+from recorder import RecorderAgent,StoreFindingsTool,DEFAULT_KB_SYSTEM_PROMPT
 
 
 SHARED_RESPONSE_FORMAT_BLOCK = """

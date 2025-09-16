@@ -34,7 +34,7 @@ async def ask_agent(query: UserQuery):
     接收用户问题并与DBA Agent交互。
     """
     print(f"[*] API: 接收到问题: '{query.question}'")
-    final_result = run_dba_task(
+    final_result = await run_dba_task(
         question=query.question, 
         embedding_model=embedding_model_singleton
     )

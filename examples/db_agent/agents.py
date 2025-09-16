@@ -34,3 +34,12 @@ class DBAExpertAssistant(BaseAssistant):
             "请根据以下顶层任务目标，开始你的工作流程。\n\n"
             f"**任务目标**: {task_description}"
         )
+
+class BackgroundTaskDBAExpertAssistant(DBAExpertAssistant):
+    """
+    一个用于启动和管理“全能数据库专家”子Agent的助手工具。
+    它将子Agent的执行作为一个后台任务来启动，允许父Agent继续执行其他操作。
+    """
+    is_background_task: bool = True
+    name: str = "BackgroundTask_DBA_Agent"
+    description: str = "将一个复杂的数据库任务委托给专家团队，并作为一个后台任务来执行，不会阻塞当前流程。当你需要启动一个耗时较长的数据库操作，并且希望在等待期间执行其他任务时，请使用此工具。"

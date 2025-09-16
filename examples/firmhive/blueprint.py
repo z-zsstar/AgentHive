@@ -16,12 +16,12 @@ from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
 from binhive.binagent import create_binary_analysis_config,\
      DEFAULT_BINARY_ANALYSIS_SYSTEM_PROMPT,DEFAULT_BINARY_VALIDATION_SYSTEM_PROMPT
 
-from firmhive.utils.finder import find_firmware_root
-from firmhive.utils.convert2md import load_knowledge_base
-from firmhive.tools import FlexibleContext, ExecutableTool, GetContextInfoTool, ShellExecutorTool, Radare2Tool
+from utils.finder import find_firmware_root
+from utils.convert2md import load_knowledge_base
+from tools import FlexibleContext, ExecutableTool, GetContextInfoTool, ShellExecutorTool, Radare2Tool
     #  VulnerabilitySearchTool
-from firmhive.knowagent import KnowledgeBaseAgent,QueryFindingsTool,ListUniqueValuesTool,StoreFindingsTool,DEFAULT_KB_SYSTEM_PROMPT
-from firmhive.assitants import ParallelDeepFileAnalysisDelegator,ParallelDeepDirectoryAnalysisDelegator,\
+from knowagent import KnowledgeBaseAgent,QueryFindingsTool,ListUniqueValuesTool,StoreFindingsTool,DEFAULT_KB_SYSTEM_PROMPT
+from assitants import ParallelDeepFileAnalysisDelegator,ParallelDeepDirectoryAnalysisDelegator,\
                             DeepFileAnalysisAssistant,DeepDirectoryAnalysisAssistant
                             
 DEFAULT_VERIFICATION_TASK_TEMPLATE = (
@@ -665,7 +665,7 @@ class FirmwareMasterAgent:
             return None, "Knowledge base file does not exist"
 
         try:
-            from firmhive.utils.convert2md import convert_kb_to_markdown
+            from utils.convert2md import convert_kb_to_markdown
             success, msg_or_path = convert_kb_to_markdown(kb_path)
             if success:
                 print(f"Successfully generated Markdown report: {msg_or_path}")
@@ -687,7 +687,7 @@ class FirmwareMasterAgent:
         print("\nStarting verification report generation")
         
         try:
-            from firmhive.utils.convert2md import generate_verification_report_md
+            from utils.convert2md import generate_verification_report_md
             
             success, msg_or_path = generate_verification_report_md(self.output_dir)
             

@@ -25,7 +25,7 @@ class BaseAssistant(ExecutableTool):
                 "properties": {
                     "task": {
                         "type": "string",
-                        "description": "要执行的子任务的具体描述，需要注意说明分析对象。"
+                        "description": "要执行的子任务的具体描述。"
                     }
                 },
                 "required": ["task"],
@@ -223,7 +223,7 @@ class ParallelBaseAssistant(ExecutableTool):
                     "properties": {
                         "task": {
                             "type": "string",
-                            "description": "要执行的子任务的具体描述，注意每个子任务的描述都是独立的，需要说明分析对象。"
+                            "description": "要执行的子任务的具体描述，注意每个子任务的描述都是独立的。"
                         }
                     },
                     "required": ["task"],

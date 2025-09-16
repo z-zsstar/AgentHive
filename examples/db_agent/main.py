@@ -1,15 +1,16 @@
 import os
+import asyncio
 from sentence_transformers import SentenceTransformer
 
 from agenthive.base import BaseAgent
 from agenthive.tools.basetool import FlexibleContext
 from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
 
-from agents import DBAExpertAssistant
+from agents import DBAExpertAssistant, BackgroundTaskDBAExpertAssistant
 from blueprint import create_dba_blueprint
 from prompts import DBA_MANAGER_SYSTEM_PROMPT
 
-def run_dba_task(question: str, embedding_model) -> str:
+async def run_dba_task(question: str, embedding_model) -> str:
     """
     初始化DBA Agent并运行指定的任务。
     
@@ -25,7 +26,7 @@ def run_dba_task(question: str, embedding_model) -> str:
     DB_PARAMS = {
         "dbname": os.getenv("DB_NAME", "postgres"),
         "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "password"),
+        "password": os.getenv("DB_PASSWORD", ""),
         "host": os.getenv("DB_HOST", "localhost"),
         "port": os.getenv("DB_PORT", "5432"),
     }
@@ -38,24 +39,31 @@ def run_dba_task(question: str, embedding_model) -> str:
 
     expert_agent_config = create_dba_blueprint(max_iterations=50)
 
+    # 普通的、同步阻塞的助手工具
     assistant_tool_config = AssistantToolConfig(
         assistant_class=DBAExpertAssistant,
         sub_agent_config=expert_agent_config,
     )
 
+    # 支持后台执行的、非阻塞的助手工具
+    background_assistant_tool_config = AssistantToolConfig(
+        assistant_class=BackgroundTaskDBAExpertAssistant,
+        sub_agent_config=expert_agent_config,
+    )
+
     manager_config = AgentConfig(
         agent_class=BaseAgent,
-        tool_configs=[assistant_tool_config],
+        tool_configs=[assistant_tool_config, background_assistant_tool_config],
         system_prompt=DBA_MANAGER_SYSTEM_PROMPT,
-        max_iterations=5
+        max_iterations=10 # 增加迭代次数以支持后台任务交互
     )
 
     manager_agent = build_agent(manager_config, context)
-    print("[*] DBA 专家团队初始化成功。")
+    print("[*] DBA 专家团队初始化成功，配备标准和后台任务两种委托工具。")
 
     print(f"\n--- 正在使用专家团队处理任务: {question} ---")
     
-    final_result = manager_agent.run(question)
+    final_result = await manager_agent.arun(question)
     return final_result
 
 def main():
@@ -64,14 +72,14 @@ def main():
     embedding_model = SentenceTransformer("BAAI/bge-base-en-v1.5", device='cpu')
     print(" -> 模型加载成功。")
 
-    question = (
+    question_long_task = (
         "请对知识库进行一次数据一致性检查与修复。"
         "任务要求：首先，请找出`authors`表中是否存在姓名完全相同的重复作者记录；"
         "如果存在，请将这些重复的记录合并为一条，并将其所有关联的论文（在`paper_authors`表中）都指向合并后的那条单一作者记录。"
-        "请确保整个操作是原子性的。全程中文回答"
+        "这是一个耗时任务，请使用后台工具启动它。在它运行时，请必须语义检索来查询提到Lora的论文，并告诉我这些论文的标题、作者、发表时间、发表期刊。"
     )
 
-    final_result = run_dba_task(question, embedding_model)
+    final_result = asyncio.run(run_dba_task(question_long_task, embedding_model))
     
     print("\n" + "="*30)
     print("最终结果:")
