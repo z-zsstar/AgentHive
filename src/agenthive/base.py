@@ -1,12 +1,14 @@
 import os
 import re
 import json
+import uuid
+import time
 import queue
 import inspect
 import asyncio
 import functools
 import threading
-import uuid
+import concurrent.futures
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Callable, Optional, Type, Union
 
@@ -200,6 +202,7 @@ class BaseAgent(JSONOutputLLM):
         if messages_filters is not None:
             self.messages_filters = messages_filters
         self.background_tasks: Dict[str, asyncio.Task] = {} # 用于跟踪后台任务
+        self.background_jobs: Dict[str, Dict] = {} # For run method background tasks
 
         self._setup_output_paths(agent_instance_name)
         self.name = agent_instance_name or self.__class__.__name__
@@ -219,7 +222,7 @@ class BaseAgent(JSONOutputLLM):
                 },
                 "action": {
                     "type": "string",
-                    "description": "Select the next action. Must be one of the available tool names or 'finish'."
+                    "description": "Select the next action. Must be one of the available tool names, 'wait', or 'finish'."
                 },
                 "action_input": {
                     "oneOf": [
@@ -503,17 +506,30 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             return error_msg
 
     def _auto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
-        """Helper method to execute a list of tools sequentially."""
-        for tool_call in tool_calls:
-            tool_name = tool_call.get("name") or tool_call.get("tool_name")
-            tool_input = tool_call.get("input") or tool_call.get("tool_input", {})
-            if not tool_name:
-                print("Warning: tool_name not provided in tool_call, skipping.")
-                continue
-            
-            tool_result = self._execute_tool(tool_name, tool_input)
-            print(f"Tool execution result:\n{tool_result}")
-            self.add_message('user', tool_result, type='tool_result')
+        """Helper method to execute a list of tools concurrently using threads."""
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_tool_call = {}
+            for tool_call in tool_calls:
+                tool_name = tool_call.get("name") or tool_call.get("tool_name")
+                tool_input = tool_call.get("input") or tool_call.get("tool_input", {})
+                if not tool_name:
+                    print("Warning: tool_name not provided in tool_call, skipping.")
+                    continue
+                
+                future = executor.submit(self._execute_tool, tool_name, tool_input)
+                future_to_tool_call[future] = tool_call
+
+            for future in concurrent.futures.as_completed(future_to_tool_call):
+                tool_call = future_to_tool_call[future]
+                tool_name = tool_call.get("name") or tool_call.get("tool_name")
+                try:
+                    tool_result = future.result()
+                    print(f"Tool execution result for '{tool_name}':\n{tool_result}")
+                    self.add_message('user', tool_result, type='tool_result')
+                except Exception as exc:
+                    print(f"Tool '{tool_name}' generated an exception: {exc}")
+                    error_message = f"Tool execution for '{tool_name}' failed with error: {exc}"
+                    self.add_message('user', error_message, type='tool_result_error')
 
     async def _aauto_execute_tools(self, tool_calls: List[Dict[str, Any]]):
         """Helper method to execute a list of tools concurrently."""
@@ -549,8 +565,28 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             self._auto_execute_tools(auto_tools)
 
         final_answer = None
-        for i in range(self.max_iterations):
-            print(f"\n----- [Iteration {i + 1}/{self.max_iterations}] -----")
+        is_waiting_for_jobs = False
+        iteration_count = 0
+        while iteration_count < self.max_iterations:
+            if not is_waiting_for_jobs:
+                iteration_count += 1
+            
+            print(f"\n----- [Iteration {iteration_count}/{self.max_iterations}] -----")
+
+            injected_a_result = self._check_and_inject_background_jobs()
+
+            if is_waiting_for_jobs and injected_a_result:
+                print("A background job completed. Resuming...")
+                is_waiting_for_jobs = False
+            
+            if is_waiting_for_jobs:
+                if self.background_jobs:
+                    print(f"Waiting for {len(self.background_jobs)} background job(s) to complete...")
+                    time.sleep(1) # Polling interval
+                    continue
+                else:
+                    print("All background jobs are complete. Resuming LLM interaction for final summary.")
+                    is_waiting_for_jobs = False
 
             prompt_messages = self._prepare_llm_request_messages()
 
@@ -563,7 +599,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
                     output_dir = self.context.get("output")
                     response_obj = self.get_llm_response(prompt_messages, output_dir=output_dir)
                     raw_response = response_obj['content']
-                    print(f"LLM Raw Response (Iteration {i+1}, Attempt {retry_count+1}):\n{raw_response}")
+                    print(f"LLM Raw Response (Iteration {iteration_count}, Attempt {retry_count+1}):\n{raw_response}")
                     
                     if retry_count == 0:  
                         self.add_message('assistant', raw_response)    
@@ -616,7 +652,23 @@ Retry generating the response.
             action_input = parsed_response.get("action_input")
             status = parsed_response.get("status")  
 
+            if action == "wait":
+                if self.background_jobs:
+                    print("Action is 'wait', and background jobs are running. Entering waiting mode.")
+                    is_waiting_for_jobs = True
+                    continue
+                else:
+                    print("Warning: Agent chose 'wait' action but no background jobs are running.")
+                    self.add_message('user', "Warning: You used the 'wait' action, but there are no background jobs running. Please choose another action or use 'finish' to complete the task.", type='system_warning')
+                    continue
+
             if status == "complete" or (action == "finish" and status != "continue"):
+                if self.background_jobs:
+                    print("Agent wants to finish, but background jobs are running. Entering waiting mode.")
+                    is_waiting_for_jobs = True
+                    self.add_message('user', "System Note: Your request to finish is acknowledged, but background jobs are still running. The system will wait for them to complete before generating the final summary. To explicitly wait without finishing, use the 'wait' action next time.", type='system_note')
+                    continue
+
                 if isinstance(action_input, dict) and "final_response" in action_input:
                     final_answer = action_input["final_response"]
                 else:
@@ -629,9 +681,41 @@ Retry generating the response.
                      print(tool_result)
                      self.add_message('user', tool_result, type='tool_result_error')
                 else:
-                    tool_result = self._execute_tool(action, action_input)
-                    print(f"Tool execution result:\n{tool_result}")
-                    self.add_message('user', tool_result, type='tool_result')
+                    tool_to_run = self.tools.get(action)
+                    if tool_to_run and getattr(tool_to_run, 'is_background_task', False):
+                        task_id = f"{action}_{uuid.uuid4().hex[:6]}"
+                        print(f"Detected background task tool: '{action}'. Starting with Task ID: {task_id}...")
+                        
+                        result_queue = queue.Queue()
+                        
+                        def execute_in_thread_bg():
+                            try:
+                                safe_input_for_exec = {str(k): v for k, v in action_input.items()}
+                                result = tool_to_run.execute(**safe_input_for_exec)
+                                result_queue.put(("success", result))
+                            except Exception as e:
+                                print(f"Exception in background tool '{action}' thread: {e}")
+                                result_queue.put(("error", e))
+                        
+                        thread = threading.Thread(target=execute_in_thread_bg, daemon=True, name=f"BGToolThread-{task_id}")
+                        thread.start()
+                        
+                        self.background_jobs[task_id] = {
+                            "thread": thread,
+                            "queue": result_queue,
+                            "tool_name": action,
+                            "tool_input": action_input
+                        }
+                        
+                        tool_started_message = f"Background task started. Task Name: '{action}', Task ID: '{task_id}'. You can continue with other operations; the result will be provided automatically later."
+                        print(tool_started_message)
+                        self.add_message('user', tool_started_message, type='tool_result')
+                        continue
+
+                    else:
+                        tool_result = self._execute_tool(action, action_input)
+                        print(f"Tool execution result:\n{tool_result}")
+                        self.add_message('user', tool_result, type='tool_result')
 
             else: 
                  print("Warning: LLM response format inconsistency or status mismatch with action")
@@ -746,11 +830,21 @@ Retry generating the response.
             action_input = parsed_response.get("action_input")
             status = parsed_response.get("status")  
 
+            if action == "wait":
+                if self.background_tasks:
+                    print("Action is 'wait', and background tasks are running. Entering waiting mode.")
+                    is_waiting_for_tasks = True
+                    continue
+                else:
+                    print("Warning: Agent chose 'wait' action but no background tasks are running.")
+                    self.add_message('user', "Warning: You used the 'wait' action, but there are no background tasks running. Please choose another action or use 'finish' to complete the task.", type='system_warning')
+                    continue
+
             if status == "complete" or (action == "finish" and status != "continue"):
                 if self.background_tasks:
                     print("Agent wants to finish, but background tasks are running. Entering waiting mode.")
                     is_waiting_for_tasks = True
-                    self.add_message('user', "System Note: Your request to finish is acknowledged. The system will now wait for all background tasks to complete before generating the final summary.", type='system_note')
+                    self.add_message('user', "System Note: Your request to finish is acknowledged. The system will now wait for all background tasks to complete before generating the final summary. To explicitly wait without finishing, use the 'wait' action next time.", type='system_note')
                     continue
                 
                 if isinstance(action_input, dict) and "final_response" in action_input:
@@ -788,7 +882,7 @@ Retry generating the response.
                  status_mismatch = f"Error: Your response is inconsistent. If action is '{action}', status should be 'complete' if action is 'finish' else 'continue', but received '{status}'."
                  self.add_message('user', status_mismatch, type='error')
                  continue 
-        
+
         else:
             print(f"Max iterations reached ({self.max_iterations})")
             final_answer = "Max iterations reached but no answer found."
@@ -797,6 +891,48 @@ Retry generating the response.
         
         print(f"{self.__class__.__name__} finished")
         return final_answer if final_answer is not None else "Sorry, I was unable to complete the request."
+
+    def _check_and_inject_background_jobs(self) -> bool:
+        """
+        Checks the status of background jobs, injects results of completed jobs into the message history.
+        Returns: True if at least one job result was injected, otherwise False.
+        """
+        completed_jobs = {}
+        injected_a_result = False
+        for task_id, job_info in self.background_jobs.items():
+            if not job_info['thread'].is_alive():
+                try:
+                    status, result = job_info['queue'].get_nowait()
+                    tool_name = job_info['tool_name']
+                    tool_input = job_info['tool_input']
+                    tool_input_str = json.dumps(tool_input, ensure_ascii=False, default=str)
+                    
+                    if status == "success":
+                        result_str = str(result)
+                        job_result_message = f"Background job '{task_id}' ({tool_name}) has completed.\nParameters: {tool_input_str}\nResult:\n{result_str}"
+                    else: # error
+                        error_obj = result
+                        job_result_message = f"Background job '{task_id}' ({tool_name}) failed.\nParameters: {tool_input_str}\nError: {type(error_obj).__name__}: {str(error_obj)}"
+
+                    print(f"--- Injected Background Job Result ---\n{job_result_message}\n---------------------------------------")
+                    self.add_message('user', job_result_message, type='background_tool_result')
+
+                except queue.Empty:
+                    error_message = f"Background job '{task_id}' finished but no result was found in its queue."
+                    print(f"--- Injected Background Job Error ---\n{error_message}\n--------------------------------------")
+                    self.add_message('user', error_message, type='background_tool_error')
+                except Exception as e:
+                    error_message = f"An unexpected error occurred while processing result for background job '{task_id}': {e}"
+                    print(f"--- Injected Background Job Error ---\n{error_message}\n--------------------------------------")
+                    self.add_message('user', error_message, type='background_tool_error')
+                
+                completed_jobs[task_id] = job_info
+                injected_a_result = True
+
+        for task_id in completed_jobs:
+            del self.background_jobs[task_id]
+        
+        return injected_a_result
 
     async def _check_and_inject_background_tasks(self) -> bool:
         """
