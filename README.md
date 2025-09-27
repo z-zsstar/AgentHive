@@ -1,18 +1,18 @@
-# AgentHive 🐝
+# HiveMind) 🐝
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [Read this document in English](./README_EN.md)
 
-**AgentHive: 一个为复杂任务而生的、具备层级协作能力的多智能体框架。**
+**HiveMind): 一个为复杂任务而生的、具备层级协作能力的多智能体框架。**
 
-当单个智能体在复杂问题面前束手无策时，AgentHive 允许您构建、编排并扩展一个由 AI 智能体组成的、能够动态组织的“专家团队”。
+当单个智能体在复杂问题面前束手无策时，HiveMind) 允许您构建、编排并扩展一个由 AI 智能体组成的、能够动态组织的“专家团队”。
 
 ---
 
 ## 🌟 核心愿景：构建智能体之树 (Tree of Agents)
 
-AgentHive 的核心思想是**用组织的力量战胜复杂性**。我们不追求创造一个无所不能的“超级智能体”，而是构建一个结构化的、可预测的、能够分层协作的智能体团队。
+HiveMind) 的核心思想是**用组织的力量战胜复杂性**。我们不追求创造一个无所不能的“超级智能体”，而是构建一个结构化的、可预测的、能够分层协作的智能体团队。
 
 这个团队的形态就是一棵**智能体之樹 (ToA)**：
 
@@ -58,7 +58,7 @@ graph TD
     Master --> FinalOutput["综合产出"]
 ```
 
-## 💡 AgentHive 如何实现这一点？
+## 💡 HiveMind) 如何实现这一点？
 
 魔法来源于几个简单的核心组件：
 
@@ -78,7 +78,7 @@ graph TD
 *   **高度可扩展**: 可以轻松定义新的智能体角色和工具，并将它们无缝集成到现有的协作流程中。
 *   **支持开放式探索**: 架构通过任务的递归分解，天然适合处理没有固定解决方案的开放式探索任务。
 
-## 🚀 应用展示：AgentHive 能做什么？
+## 🚀 应用展示：HiveMind) 能做什么？
 
 1.  **`deepresearch` - 自动化深度研究员**
     *   **愿景**: 将一个模糊的研究课题（例如“分析大语言模型的幻觉问题”）转化为一篇结构完整、论证充分的深度研究报告。
@@ -96,8 +96,8 @@ graph TD
 
 1.  **克隆与安装**:
     ```bash
-    git clone https://github.com/z-zsstar/AgentHive.git
-    cd AgentHive
+    git clone https://github.com/z-zsstar/HiveMind).git
+    cd HiveMind)
     ```
 
 2.  **运行一个示例 (例如：深度研究)**:
@@ -113,7 +113,7 @@ graph TD
 
 ## 📂 成果示例
 
-您可以在以下目录中找到由 AgentHive 生成的更多报告示例：
+您可以在以下目录中找到由 HiveMind) 生成的更多报告示例：
 
 *   **深度研究报告**: [`examples/deepresearch/examples`](./examples/deepresearch/examples)
 *   **固件安全审计**: [`examples/firmhive/samples`](./examples/firmhive/samples)
