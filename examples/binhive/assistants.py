@@ -1,4 +1,3 @@
-import os
 from typing import Any, Dict, Optional, List, Union, Type
 
 from hivemind.base import BaseAgent
