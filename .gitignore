@@ -201,7 +201,7 @@ config.ini` specifies files/directories to
 .cursorignore
 .cursorindexingignore
 
-# Marimo
+# Marimo 
 marimo/_static/
 marimo/_lsp/
 __marimo__/
