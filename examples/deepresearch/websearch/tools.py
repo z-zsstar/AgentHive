@@ -7,7 +7,7 @@ from googlesearch import search
 from playwright.sync_api import Page, TimeoutError, Optional
 from playwright.async_api import Page as AsyncPage, TimeoutError as AsyncTimeoutError
 
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 
 class SearchOnlineTool(ExecutableTool):

@@ -201,8 +201,8 @@ class BaseAgent(JSONOutputLLM):
         self.history_strategy = history_strategy
         if messages_filters is not None:
             self.messages_filters = messages_filters
-        self.background_tasks: Dict[str, asyncio.Task] = {} # 用于跟踪后台任务
-        self.background_jobs: Dict[str, Dict] = {} # For run method background tasks
+        self.background_tasks: Dict[str, asyncio.Task] = {} 
+        self.background_jobs: Dict[str, Dict] = {}
 
         self._setup_output_paths(agent_instance_name)
         self.name = agent_instance_name or self.__class__.__name__
@@ -582,7 +582,7 @@ When you use the 'finish' action, the value of the 'final_response' key in 'acti
             if is_waiting_for_jobs:
                 if self.background_jobs:
                     print(f"Waiting for {len(self.background_jobs)} background job(s) to complete...")
-                    time.sleep(1) # Polling interval
+                    time.sleep(1)
                     continue
                 else:
                     print("All background jobs are complete. Resuming LLM interaction for final summary.")
@@ -910,7 +910,7 @@ Retry generating the response.
                     if status == "success":
                         result_str = str(result)
                         job_result_message = f"Background job '{task_id}' ({tool_name}) has completed.\nParameters: {tool_input_str}\nResult:\n{result_str}"
-                    else: # error
+                    else:
                         error_obj = result
                         job_result_message = f"Background job '{task_id}' ({tool_name}) failed.\nParameters: {tool_input_str}\nError: {type(error_obj).__name__}: {str(error_obj)}"
 

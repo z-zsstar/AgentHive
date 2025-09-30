@@ -1,5 +1,5 @@
-from agenthive.base import BaseAgent
-from agenthive.core.builder import AgentConfig
+from hivemind.base import BaseAgent
+from hivemind.core.builder import AgentConfig
 
 from .tools import SQLExecuteTool
 from prompts import DUAL_ROLE_DBA_PROMPT

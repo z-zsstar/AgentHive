@@ -4,9 +4,9 @@ import fcntl
 import asyncio
 from typing import Dict, List, Any, Optional, Type, Union
 
-from agenthive.base import BaseAgent
-from agenthive.historystrategy import HistoryStrategy
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.base import BaseAgent
+from hivemind.historystrategy import HistoryStrategy
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 DEFAULT_KB_FILE = "knowledge_base.jsonl"
 
@@ -413,6 +413,7 @@ class ListUniqueValuesTool(ExecutableTool, KnowledgeBaseMixin):
             return {"status": "error", "message": error_message, "target_key": target_key, "unique_values": []}
 
 
+
 DEFAULT_KB_SYSTEM_PROMPT = f"""
 You are a firmware analysis knowledge base agent, responsible for efficiently and accurately handling the storage, querying, and correlation analysis of firmware analysis findings. When there is no valid information or it is irrelevant to the user's request, do not perform any storage or query operations.
 
@@ -465,6 +466,7 @@ This exploratory analysis helps to:
 
 Remember: Your work directly impacts the quality and efficiency of firmware security analysis. Maintain a professional, accurate, and systematic approach. Never fabricate or guess any information. When information is insufficient, honestly report the analysis status and its limitations.
 """
+
 
 DEFAULT_KB_TOOLS = [StoreFindingsTool, QueryFindingsTool, ListUniqueValuesTool]
 

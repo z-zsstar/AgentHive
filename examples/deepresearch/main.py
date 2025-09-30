@@ -22,7 +22,7 @@ DEFAULT_TASK = """
 """
 
 def _print_help():
-    print("\n--- AgentHive Deep Research (Interactive Mode) ---")
+    print("\n--- hivemind Deep Research (Interactive Mode) ---")
     print("Available commands:")
     print("  run [task description] - Start a new research task. If no description, use default.")
     print("  view [path|'all']      - View content of a chapter or the whole report. E.g., 'view 1-2'.")
@@ -57,7 +57,7 @@ async def amain():
     Handles command-line arguments for a single run and enters an interactive loop for multiple runs.
     """
     parser = argparse.ArgumentParser(
-        description="AgentHive - Deep Research Manager\n"
+        description="hivemind - Deep Research Manager\n"
                     "Run with a specific task or in interactive mode."
     )
     parser.add_argument(

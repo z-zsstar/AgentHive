@@ -7,7 +7,7 @@ import requests
 import traceback
 import subprocess
 from typing import Dict, Any, Optional, List
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 
 class DockerTool:

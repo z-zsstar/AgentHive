@@ -2,9 +2,9 @@ import os
 import asyncio
 from sentence_transformers import SentenceTransformer
 
-from agenthive.base import BaseAgent
-from agenthive.tools.basetool import FlexibleContext
-from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
+from hivemind.base import BaseAgent
+from hivemind.tools.basetool import FlexibleContext
+from hivemind.core.builder import build_agent, AgentConfig, AssistantToolConfig
 
 from agents import DBAExpertAssistant, BackgroundTaskDBAExpertAssistant
 from blueprint import create_dba_blueprint
@@ -26,7 +26,7 @@ async def run_dba_task(question: str, embedding_model) -> str:
     DB_PARAMS = {
         "dbname": os.getenv("DB_NAME", "postgres"),
         "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", ""),
+        "password": os.getenv("DB_PASSWORD", "0514"),
         "host": os.getenv("DB_HOST", "localhost"),
         "port": os.getenv("DB_PORT", "5432"),
     }

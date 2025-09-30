@@ -9,9 +9,9 @@ import subprocess
 import uuid
 from typing import Dict, List, Any, Optional, Type, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from agenthive.base import BaseAgent
-from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
-from agenthive.core.builder import build_agent, AgentConfig, AssistantToolConfig
+from hivemind.base import BaseAgent
+from hivemind.core.assistants import BaseAssistant, ParallelBaseAssistant
+from hivemind.core.builder import build_agent, AgentConfig, AssistantToolConfig
 
 from binhive.binagent import create_binary_analysis_config,\
      DEFAULT_BINARY_ANALYSIS_SYSTEM_PROMPT,DEFAULT_BINARY_VALIDATION_SYSTEM_PROMPT

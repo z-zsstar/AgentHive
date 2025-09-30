@@ -1,5 +1,5 @@
-from agenthive.core.assistants import BaseAssistant
-from agenthive.tools.basetool import FlexibleContext
+from hivemind.core.assistants import BaseAssistant
+from hivemind.tools.basetool import FlexibleContext
 
 class DBAExpertAssistant(BaseAssistant):
     """

@@ -1,6 +1,6 @@
 import r2pipe
 from typing import Dict, Any, Optional
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 class Radare2Tool(ExecutableTool):
     name: str = "r2"

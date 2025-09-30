@@ -8,7 +8,7 @@ from redis.asyncio import Redis as AsyncRedis
 from typing import Dict, Any, List, Union
 from pgvector.psycopg2 import register_vector
 
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 
 class SQLExecuteTool(ExecutableTool):

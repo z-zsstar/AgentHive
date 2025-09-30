@@ -4,10 +4,10 @@ import asyncio
 import traceback
 from typing import Optional, List, Any, Dict
 
-from agenthive.base import BaseAgent
-from agenthive.tools.basetool import FlexibleContext
-from agenthive.core.assistants import BaseAssistant, ParallelBaseAssistant
-from agenthive.core.builder import AgentConfig, AssistantToolConfig, build_agent
+from hivemind.base import BaseAgent
+from hivemind.tools.basetool import FlexibleContext
+from hivemind.core.assistants import BaseAssistant, ParallelBaseAssistant
+from hivemind.core.builder import AgentConfig, AssistantToolConfig, build_agent
 
 
 from models import ReportNode, ReferenceManager
@@ -321,8 +321,8 @@ class ChapterProducerAssistant(BaseAssistant):
     _prepare_sub_agent_context = FocusedChapterEditor._prepare_sub_agent_context
 
     def execute(self, **kwargs: Any) -> str:
-        from tools import AddItemTool, UpdateBlockTextTool, DeleteItemTool, GetNodeContentTool, WebSearchToolWrapper
-        from blueprint import CREATOR_SYSTEM_PROMPT, REVIEWER_SYSTEM_PROMPT
+        from .tools import AddItemTool, UpdateBlockTextTool, DeleteItemTool, GetNodeContentTool, WebSearchToolWrapper
+        from .blueprint import CREATOR_SYSTEM_PROMPT, REVIEWER_SYSTEM_PROMPT
 
         chapter_path = kwargs.get("chapter_path")
         task_description = kwargs.get("task_description")
@@ -390,8 +390,8 @@ class ChapterProducerAssistant(BaseAssistant):
             return f"错误: ChapterProducer 在制作章节 '{chapter_path}' 时失败: {e}"
 
     async def aexecute(self, **kwargs: Any) -> str:
-        from tools import AddItemTool, UpdateBlockTextTool, DeleteItemTool, GetNodeContentTool, WebSearchToolWrapper
-        from blueprint import CREATOR_SYSTEM_PROMPT, REVIEWER_SYSTEM_PROMPT
+        from .tools import AddItemTool, UpdateBlockTextTool, DeleteItemTool, GetNodeContentTool, WebSearchToolWrapper
+        from .blueprint import CREATOR_SYSTEM_PROMPT, REVIEWER_SYSTEM_PROMPT
 
         chapter_path = kwargs.get("chapter_path")
         task_description = kwargs.get("task_description")

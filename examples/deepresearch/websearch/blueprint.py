@@ -9,9 +9,9 @@ from playwright.async_api import async_playwright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.async_api import Error as AsyncPlaywrightError
 
-from agenthive.base import BaseAgent, Message
-from agenthive.tools.basetool import FlexibleContext, ExecutableTool
-from agenthive.core.builder import AgentConfig, AssistantToolConfig, build_agent
+from hivemind.base import BaseAgent, Message
+from hivemind.tools.basetool import FlexibleContext, ExecutableTool
+from hivemind.core.builder import AgentConfig, AssistantToolConfig, build_agent
 
 from .assistants import WebParallelAssistant
 from .scripts import MARK_PAGE_SCRIPT_CONTENT
@@ -544,7 +544,7 @@ class WebSearchManager:
 
 if __name__ == '__main__':
     # The 'build_agent_mock' has been removed to ensure the actual 'build_agent' 
-    # from 'agenthive.core.builder' is used, which correctly handles assistant setup.
+    # from 'hivemind.core.builder' is used, which correctly handles assistant setup.
 
     async def main():
         """Asynchronously runs the WebSearchManager to test the full async agent flow."""

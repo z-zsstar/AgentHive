@@ -3,9 +3,9 @@ import os
 import fcntl
 from typing import Dict, List, Any, Optional, Type, Union
 
-from agenthive.base import BaseAgent
-from agenthive.historystrategy import HistoryStrategy
-from agenthive.tools.basetool import ExecutableTool, FlexibleContext
+from hivemind.base import BaseAgent
+from hivemind.historystrategy import HistoryStrategy
+from hivemind.tools.basetool import ExecutableTool, FlexibleContext
 
 DEFAULT_KB_FILE = "propagation_paths.jsonl"
 

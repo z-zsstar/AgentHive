@@ -1,7 +1,7 @@
 from typing import Any
 
-from agenthive.tools.basetool import FlexibleContext
-from agenthive.core.assistants import ParallelBaseAssistant
+from hivemind.tools.basetool import FlexibleContext
+from hivemind.core.assistants import ParallelBaseAssistant
 
 class WebParallelAssistant(ParallelBaseAssistant):
     name: str = "ParallelWebExtractor"

@@ -2,14 +2,14 @@ import os
 import traceback
 from typing import Optional, Any
 
-from agenthive.base import BaseAgent
-from agenthive.tools.basetool import FlexibleContext
-from agenthive.core.builder import AgentConfig, build_agent, AssistantToolConfig
+from hivemind.base import BaseAgent
+from hivemind.tools.basetool import FlexibleContext
+from hivemind.core.builder import AgentConfig, build_agent, AssistantToolConfig
 
 from util.utils import time_it
-from .models import ReportNode, ReferenceManager
-from .assistants import ChapterProducerAssistant, ParallelChapterProducerAssistant, FocusedChapterEditor
-from .tools import AddItemTool, DeleteItemTool, GetNodeContentTool, UpdateBlockTextTool, SearchReportContentTool
+from models import ReportNode, ReferenceManager
+from assistants import ChapterProducerAssistant, ParallelChapterProducerAssistant, FocusedChapterEditor
+from tools import AddItemTool, DeleteItemTool, GetNodeContentTool, UpdateBlockTextTool, SearchReportContentTool
 
 CREATOR_SYSTEM_PROMPT = """
 你的核心身份：自主研究专家 (创作者Agent)

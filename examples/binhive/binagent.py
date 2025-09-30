@@ -1,9 +1,9 @@
 import os
 from typing import Dict, List, Any, Optional, Type, Union
 
-from agenthive.base import BaseAgent
-from agenthive.core.builder import AgentConfig, AssistantToolConfig
-from agenthive.tools.basetool import FlexibleContext, ExecutableTool
+from hivemind.base import BaseAgent
+from hivemind.core.builder import AgentConfig, AssistantToolConfig
+from hivemind.tools.basetool import FlexibleContext, ExecutableTool
 
 from tools import Radare2Tool
 from assistants import ParallelFunctionDelegator,ParallelTaskDelegator

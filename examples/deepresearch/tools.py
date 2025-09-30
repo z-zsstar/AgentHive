@@ -5,7 +5,7 @@ import traceback
 from typing import Optional, Union
 
 from websearch.blueprint import WebSearchManager
-from agenthive.tools.basetool import ExecutableTool
+from hivemind.tools.basetool import ExecutableTool
 from models import ReportNode, ContentBlock, ReferenceManager
 
 
