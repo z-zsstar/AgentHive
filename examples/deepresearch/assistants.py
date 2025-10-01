@@ -248,7 +248,7 @@ class ResearchAssistant(BaseAssistant):
 
     def execute(self, **kwargs: Any) -> str:
         """执行研究任务。"""
-        from tools import WebSearchToolWrapper, GetNodeContentTool
+        from .tools import WebSearchToolWrapper, GetNodeContentTool
         try:
             context = self._prepare_sub_agent_context(**kwargs)
             prompt = self._build_sub_agent_prompt(**kwargs)
@@ -272,7 +272,7 @@ class ResearchAssistant(BaseAssistant):
 
     async def aexecute(self, **kwargs: Any) -> str:
         """异步执行研究任务。"""
-        from tools import WebSearchToolWrapper, GetNodeContentTool
+        from .tools import WebSearchToolWrapper, GetNodeContentTool
         try:
             context = self._prepare_sub_agent_context(**kwargs)
             prompt = self._build_sub_agent_prompt(**kwargs)

@@ -12,8 +12,8 @@ import concurrent.futures
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Callable, Optional, Type, Union
 
+from .common import Message
 from .llmclient import LLMClient
-from .common import Message, Tool
 from .historystrategy import HistoryStrategy
 from .tools.basetool import ExecutableTool, FlexibleContext
 
